@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package kurumai;
+
+import "google/protobuf/timestamp.proto";
+
+message MicPacket {
+    optional bytes data = 1;
+}
+
+
+message TTSMessage {
+    optional Message message = 1;
+    repeated Expression expressions = 2;
+    optional bytes data = 3;
+}
+
+message Message {
+    optional string id = 1;
+    optional string user_id = 2;
+    optional string conversation_id = 3;
+    optional string content = 4;
+    optional google.protobuf.Timestamp created_at = 5;
+}
+
+message Expression {
+    repeated Viseme visemes = 1;
+    optional float start_time = 2;
+}
+
+message Viseme {
+    optional int32 index = 1;
+    optional float weight = 2;
+}
+
+
+message StartMessage {
+    optional string type = 1;
+    optional string details = 2;
+}
+
+
+message SocketEvent {
+    optional string event = 1;
+    optional string id = 2;
+    oneof payload {
+        TTSMessage tts_message = 3;
+        Message message = 4;
+        StartMessage start_message = 5;
+    }
+}
