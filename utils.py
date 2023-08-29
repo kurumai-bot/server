@@ -135,10 +135,7 @@ class Cache:
 
     def _on_exit(self, code, frame) -> None:
         self.close()
-        try:
-            self._original_handler(code, frame)
-        except KeyboardInterrupt:
-            pass
+        self._original_handler(code, frame)
 
     def _cache_loop(self) -> None:
         while self._run_loop:
