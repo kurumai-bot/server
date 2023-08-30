@@ -34,8 +34,9 @@ socketio = SocketIO(
 )
 
 app.config["REMEMBER_COOKIE_SECURE"] = True
+app.config["REMEMBER_COOKIE_SAMESITE"] = "None"
 app.config["SESSION_COOKIE_SECURE"] = True
-
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
 
 @login_manager.user_loader
 def load_user(user_id: str) -> User | None:
