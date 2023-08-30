@@ -195,14 +195,35 @@ class SessionData:
 def get_session_data() -> SessionData | None:
     # Session "_id" and "_user_id" are from Flask-Login and the combination of the two *should*
     # ensure key in this dict is a specific user on a specific computer
-    return get_session_data_store().get(get_session_key(), None)
+    return get_session_data_store().get(session.get("_user_id"), {}).get(session.get("_id"))
 
-def get_session_data_store() -> Dict[Tuple[str, str], SessionData]:
+def get_session_data_store() -> Dict[str, Dict[str, SessionData]]:
     return current_app.extensions["user_session_ids"]
 
-def get_session_key() -> Tuple[str, str]:
-    return (session.get("_id"), session.get("_user_id"))
+def add_session_data(session_data: SessionData) -> None:
+    store = get_session_data_store()
+    user_id = session.get("_user_id")
+    session_id = session.get("_id")
 
+    user_sessions = store.get(user_id)
+    if user_sessions is not None:
+        user_sessions[session_id] = session_data
+    else:
+        user_sessions = { session_id: session_data }
+        store[user_id] = user_sessions
+
+def pop_session_data() -> SessionData:
+    store = get_session_data_store()
+    user_id = session.get("_user_id")
+    session_id = session.get("_id")
+
+    user_sessions = store[user_id]
+    session_data = user_sessions[session_id]
+    if len(user_sessions) == 1:
+        store.pop(user_id)
+    else:
+        user_sessions.pop(session_id)
+    return session_data
 
 def add_url_rule_view(
     app: Flask,

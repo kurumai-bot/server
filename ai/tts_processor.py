@@ -1,8 +1,6 @@
-import io
 import itertools
 import logging
 import math
-import sys
 from typing import Any, Dict, Iterable, List, Tuple
 
 from coqpit import Coqpit

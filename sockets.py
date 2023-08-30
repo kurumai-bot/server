@@ -7,7 +7,7 @@ from uuid import UUID
 from TTS.api import TTS
 from flask import request, session
 from flask_login import current_user
-from flask_socketio import ConnectionRefusedError, disconnect, SocketIO # pylint: disable=redefined-builtin
+from flask_socketio import ConnectionRefusedError, disconnect, join_room, SocketIO # pylint: disable=redefined-builtin
 from google.protobuf.message import DecodeError
 
 from ai import OpenAIChat, Pipeline, Whisper
@@ -24,10 +24,10 @@ from messages_pb2 import ( # pylint: disable=no-name-in-module
 )
 from utils import (
     SessionData,
+    add_session_data,
     datetime_to_timestamp,
     get_session_data,
-    get_session_data_store,
-    get_session_key,
+    pop_session_data,
     socket_login_required
 )
 
@@ -60,7 +60,6 @@ def handle_connect():
         )
 
     # TODO: [Pipeline config]
-    sid = request.sid
     def pipeline_callback(event: str, timestamp: datetime, data: Any, callback_data: Any):
         pipeline_complete_queue.put((event, timestamp, data, callback_data))
     pipeline = Pipeline(
@@ -76,18 +75,18 @@ def handle_connect():
         text_gen_logger=LOGGER.getChild("pipeline.text_gen")
     )
     pipeline.start()
-    get_session_data_store().setdefault(
-        get_session_key(),
-        SessionData(sid, pipeline, current_user.id)
-    )
 
-    logger.info("Socket with session id `%s` connected.", sid)
+    add_session_data(SessionData(request.sid, pipeline, current_user.id))
+
+    # Join a room whose id is the same as the user id to make emitting events easier
+    join_room(current_user.id)
+
+    logger.info("Socket with session id `%s` connected.", request.sid)
 
 
 def handle_disconnect():
     # This HAS to run for the session id tracking to work
-    session_ids = get_session_data_store()
-    session_data = session_ids.pop(get_session_key(), None)
+    session_data = pop_session_data()
     if session_data is not None:
         session_data.pipeline.stop()
 
@@ -141,7 +140,8 @@ def poll_pipeline_loop(sleep: Callable[[float], Any]) -> Callable:
                         id=str(id),
                         start_message=StartMessage(type=data[0], details=data[1])
                     )
-                    socket.emit(event, socket_event.SerializeToString(), to=session_data.sid)
+                    # Cant use the static emit function because this is not in a flask context
+                    socket.emit(event, socket_event.SerializeToString(), to=session_data.user_id)
 
                 # Finished generating AI response and TTS data. This event is called per sentence of
                 # the AI response, so it may be called multiple times after `start_gen` is.
@@ -157,7 +157,7 @@ def poll_pipeline_loop(sleep: Callable[[float], Any]) -> Callable:
                 # Pipeline is finished
                 elif event == "finish":
                     socket_event = SocketEvent(event="finish", id=str(id))
-                    socket.emit(event, socket_event.SerializeToString(), to=session_data.sid)
+                    socket.emit(event, socket_event.SerializeToString(), to=session_data.user_id)
 
                 else:
                     raise ValueError(f"Event `{event}` is not supported by the pipeline poll loop.")
@@ -169,7 +169,6 @@ def poll_pipeline_loop(sleep: Callable[[float], Any]) -> Callable:
                 )
     return wrapper
 
-# TODO: [generation] Change this function once streaming is supported
 def _on_finish_gen(
     timestamp: datetime,
     data: Dict[str, Any],
@@ -214,7 +213,7 @@ def _on_finish_gen(
         )
     )
 
-    socket.emit("finish_gen", socket_event.SerializeToString(), to=session_data.sid)
+    socket.emit("finish_gen", socket_event.SerializeToString(), to=session_data.user_id)
 
 def _on_finish_asr(
     timestamp: datetime,
@@ -225,7 +224,7 @@ def _on_finish_asr(
 ) -> None:
     if data == "" or data.isspace():
         socket_event = SocketEvent(event="finish_asr", id=str(id))
-        socket.emit("finish_asr", socket_event.SerializeToString(), to=session_data.sid)
+        socket.emit("finish_asr", socket_event.SerializeToString(), to=session_data.user_id)
         return
 
     # TODO: [User Management] Temp!!!
@@ -247,4 +246,4 @@ def _on_finish_asr(
         )
     )
 
-    socket.emit("finish_asr", socket_event.SerializeToString(), to=session_data.sid)
+    socket.emit("finish_asr", socket_event.SerializeToString(), to=session_data.user_id)
