@@ -52,7 +52,7 @@ def handle_connect():
     if get_session_data() is not None:
         logger.info(
             "User with id `%s` attemped to create 2 socketio connections.",
-            session.get("_id")
+            session.get("_user_id")
         )
 
         raise ConnectionRefusedError(
