@@ -1,13 +1,15 @@
 from datetime import datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 from flask import request
 from flask.views import MethodView
 from flask_login import current_user, login_required, login_user, logout_user
+from flask_socketio import emit
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from constants import DB
 import db
-from utils import abort_if_none, list_to_dict, get_session_data
+from messages_pb2 import Message as ProtoMessage, Conversation as ProtoConversation, SocketEvent # pylint: disable=no-name-in-module
+from utils import abort_if_none, datetime_to_timestamp, list_to_dict, get_session_data
 
 
 current_user: db.User
@@ -43,7 +45,30 @@ class Conversations(MethodView):
             return "Conversation name may not exceed 32 characters.", 400
 
         # TODO: [User Management] Temp!!!
-        return DB.create_conversation(current_user.id, UUID("10a8827c-9187-4dc6-9c48-c883af32ebc4"), name).to_dict()
+        conversation = DB.create_conversation(current_user.id, UUID("10a8827c-9187-4dc6-9c48-c883af32ebc4"), name)
+
+        # Tell other connected clients that a channel was made
+        session_data = get_session_data()
+        if session_data is not None:
+            socket_event = SocketEvent(
+                event="create_channel",
+                id=str(uuid4()),
+                conversation=ProtoConversation(
+                    id=str(conversation.id),
+                    name=conversation.name,
+                    user_id=str(conversation.user_id),
+                    bot_user_id=str(conversation.bot_user_id),
+                    created_at=datetime_to_timestamp(conversation.created_at)
+                )
+            )
+            emit(
+                "create_channel",
+                socket_event.SerializeToString(),
+                to=session_data.user_id,
+                skip_sid=session_data.sid
+            )
+
+        return conversation.to_dict()
 
 
 class Login(MethodView):
@@ -137,11 +162,32 @@ class Messages(MethodView):
         if len(content) > 4096:
             return "Message content may not exceed 4096 characters.", 400
 
+        message = conversation.send_message(False, content)
+
         session_data = get_session_data()
         if session_data is not None:
             session_data.process_data(content)
 
-        return conversation.send_message(False, content).to_dict()
+            # Tell other connected clients that a message was sent
+            socket_event = SocketEvent(
+                event="send_message",
+                id=str(uuid4()),
+                message=ProtoMessage(
+                    id=str(message.id),
+                    user_id=str(message.user_id),
+                    conversation_id=str(message.conversation_id),
+                    content=message.content,
+                    created_at=datetime_to_timestamp(message.created_at)
+                )
+            )
+            emit(
+                "send_message",
+                socket_event.SerializeToString(),
+                to=session_data.user_id,
+                skip_sid=session_data.sid
+            )
+
+        return message.to_dict()
 
 
 class Signup(MethodView):

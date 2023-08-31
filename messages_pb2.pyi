@@ -61,15 +61,31 @@ class StartMessage(_message.Message):
     def __init__(self, type: _Optional[str] = ..., details: _Optional[str] = ...) -> None: ...
 
 class SocketEvent(_message.Message):
-    __slots__ = ["event", "id", "tts_message", "message", "start_message"]
+    __slots__ = ["event", "id", "tts_message", "message", "start_message", "conversation"]
     EVENT_FIELD_NUMBER: _ClassVar[int]
     ID_FIELD_NUMBER: _ClassVar[int]
     TTS_MESSAGE_FIELD_NUMBER: _ClassVar[int]
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
     START_MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    CONVERSATION_FIELD_NUMBER: _ClassVar[int]
     event: str
     id: str
     tts_message: TTSMessage
     message: Message
     start_message: StartMessage
-    def __init__(self, event: _Optional[str] = ..., id: _Optional[str] = ..., tts_message: _Optional[_Union[TTSMessage, _Mapping]] = ..., message: _Optional[_Union[Message, _Mapping]] = ..., start_message: _Optional[_Union[StartMessage, _Mapping]] = ...) -> None: ...
+    conversation: Conversation
+    def __init__(self, event: _Optional[str] = ..., id: _Optional[str] = ..., tts_message: _Optional[_Union[TTSMessage, _Mapping]] = ..., message: _Optional[_Union[Message, _Mapping]] = ..., start_message: _Optional[_Union[StartMessage, _Mapping]] = ..., conversation: _Optional[_Union[Conversation, _Mapping]] = ...) -> None: ...
+
+class Conversation(_message.Message):
+    __slots__ = ["id", "name", "user_id", "bot_user_id", "created_at"]
+    ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    USER_ID_FIELD_NUMBER: _ClassVar[int]
+    BOT_USER_ID_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    name: str
+    user_id: str
+    bot_user_id: str
+    created_at: _timestamp_pb2.Timestamp
+    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., user_id: _Optional[str] = ..., bot_user_id: _Optional[str] = ..., created_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
