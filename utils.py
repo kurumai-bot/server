@@ -181,7 +181,6 @@ def socket_login_required(func: Callable[..., RT]):
 
 @dataclass
 class SessionData:
-    sid: str
     pipeline: Pipeline
     user_id: UUID
 

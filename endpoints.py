@@ -64,8 +64,8 @@ class Conversations(MethodView):
             emit(
                 "create_channel",
                 socket_event.SerializeToString(),
+                namespace="/",
                 to=session_data.user_id,
-                skip_sid=session_data.sid
             )
 
         return conversation.to_dict()
@@ -185,7 +185,6 @@ class Messages(MethodView):
                 socket_event.SerializeToString(),
                 namespace="/",
                 to=session_data.user_id,
-                skip_sid=session_data.sid
             )
 
         return message.to_dict()

@@ -47,18 +47,6 @@ logger.info("Finished creating inferences.")
 # TODO: Add message history to thing
 @socket_login_required
 def handle_connect():
-    # If user already a session then this probably a duplicate so force disconnect them
-    # This relies on the disconnect event calling reliably, so let's hope it does
-    if get_session_data() is not None:
-        logger.info(
-            "User with id `%s` attemped to create 2 socketio connections.",
-            session.get("_user_id")
-        )
-
-        raise ConnectionRefusedError(
-            "A user on the same computer already has socketio instance connected."
-        )
-
     # TODO: [Pipeline config]
     def pipeline_callback(event: str, timestamp: datetime, data: Any, callback_data: Any):
         pipeline_complete_queue.put((event, timestamp, data, callback_data))
@@ -76,7 +64,7 @@ def handle_connect():
     )
     pipeline.start()
 
-    add_session_data(SessionData(request.sid, pipeline, current_user.id))
+    add_session_data(SessionData(pipeline, current_user.id))
 
     # Join a room whose id is the same as the user id to make emitting events easier
     join_room(current_user.id)
@@ -95,16 +83,6 @@ def handle_disconnect():
 
 @socket_login_required
 def handle_mic_packet(data):
-    # This in theory shouldn't ever run, but checking doesn't hurt
-    session_data = get_session_data()
-    if session_data.sid != request.sid:
-        disconnect()
-        logger.info(
-            "Socket cookies on user `%s` mismatched with cached sid",
-            session.get("_user_id")
-        )
-        return None
-
     if not isinstance(data, bytes):
         return "Mic packet data should be bytes not string.", 2
 
@@ -114,6 +92,7 @@ def handle_mic_packet(data):
         return "Mic packet data is in an incorrect format.", 2
 
     # TODO: [asr] Implement some kind of stop packet to force transcribe what's in the buffer
+    session_data = get_session_data()
     session_data.process_data(mic_packet.data)
 
 
