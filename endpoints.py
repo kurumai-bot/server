@@ -183,6 +183,7 @@ class Messages(MethodView):
             emit(
                 "send_message",
                 socket_event.SerializeToString(),
+                namespace="/",
                 to=session_data.user_id,
                 skip_sid=session_data.sid
             )
