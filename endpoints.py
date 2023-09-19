@@ -65,7 +65,7 @@ class Conversations(MethodView):
                 "create_channel",
                 socket_event.SerializeToString(),
                 namespace="/",
-                to=session_data.user_id,
+                to=current_user.id,
             )
 
         return conversation.to_dict()
@@ -184,7 +184,7 @@ class Messages(MethodView):
                 "send_message",
                 socket_event.SerializeToString(),
                 namespace="/",
-                to=session_data.user_id,
+                to=current_user.id,
             )
 
         return message.to_dict()

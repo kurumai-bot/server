@@ -43,28 +43,31 @@ text_gen = OpenAIChat("gpt-3.5-turbo", openai_api_key=OPENAI_API_KEY)
 logger.info("Finished creating inferences.")
 
 
-# TODO: Figure out a way to let other clients with the same user know if the user sent a message
 # TODO: Add message history to thing
 @socket_login_required
 def handle_connect():
-    # TODO: [Pipeline config]
-    def pipeline_callback(event: str, timestamp: datetime, data: Any, callback_data: Any):
-        pipeline_complete_queue.put((event, timestamp, data, callback_data))
-    pipeline = Pipeline(
-        asr,
-        tts,
-        text_gen,
-        pipeline_callback,
-        tts_speaker_name="p300",
-        logger=LOGGER.getChild("pipeline"),
-        # TODO: [Logging] This may be too verbose
-        asr_logger=LOGGER.getChild("pipeline.asr"),
-        tts_logger=LOGGER.getChild("pipeline.tts"),
-        text_gen_logger=LOGGER.getChild("pipeline.text_gen")
-    )
-    pipeline.start()
+    session_data = get_session_data()
+    if session_data is None:
+        # TODO: [Pipeline config]
+        def pipeline_callback(event: str, timestamp: datetime, data: Any, callback_data: Any):
+            pipeline_complete_queue.put((event, timestamp, data, callback_data))
+        pipeline = Pipeline(
+            asr,
+            tts,
+            text_gen,
+            pipeline_callback,
+            tts_speaker_name="p300",
+            logger=LOGGER.getChild("pipeline"),
+            # TODO: [Logging] This may be too verbose
+            asr_logger=LOGGER.getChild("pipeline.asr"),
+            tts_logger=LOGGER.getChild("pipeline.tts"),
+            text_gen_logger=LOGGER.getChild("pipeline.text_gen")
+        )
+        pipeline.start()
 
-    add_session_data(SessionData(pipeline, current_user.id))
+        add_session_data(SessionData(pipeline, current_user.id, { request.sid }))
+    else:
+        session_data.sessions.add(request.sid)
 
     # Join a room whose id is the same as the user id to make emitting events easier
     join_room(current_user.id)
@@ -74,9 +77,13 @@ def handle_connect():
 
 def handle_disconnect():
     # This HAS to run for the session id tracking to work
-    session_data = pop_session_data()
-    if session_data is not None:
+    session_data = get_session_data()
+    print(session_data.sessions)
+    if len(session_data.sessions) == 1:
+        pop_session_data()
         session_data.pipeline.stop()
+    else:
+        session_data.sessions.remove(request.sid)
 
     logger.info("Socket with session id `%s` disconnected.", request.sid)
 
@@ -92,8 +99,7 @@ def handle_mic_packet(data):
         return "Mic packet data is in an incorrect format.", 2
 
     # TODO: [asr] Implement some kind of stop packet to force transcribe what's in the buffer
-    session_data = get_session_data()
-    session_data.process_data(mic_packet.data)
+    get_session_data().process_data(mic_packet.data)
 
 
 pipeline_complete_queue = Queue()

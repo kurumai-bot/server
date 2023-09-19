@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
 import signal
 from threading import Thread
 import time
 import traceback
-from typing import Any, Callable, Dict, List, Tuple, TYPE_CHECKING, Type, TypeVar
+from typing import Any, Callable, Dict, List, Set, Tuple, TYPE_CHECKING, Type, TypeVar
 from uuid import UUID, uuid4
 
 from flask import abort, current_app, Flask, session
@@ -183,6 +183,7 @@ def socket_login_required(func: Callable[..., RT]):
 class SessionData:
     pipeline: Pipeline
     user_id: UUID
+    sessions: Set[str] = field(default_factory=set)
 
     def process_data(self, data: str | bytes):
         self.pipeline.process_input(
