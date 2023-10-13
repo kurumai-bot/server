@@ -5,12 +5,12 @@ from typing import Any, Callable, Dict
 from uuid import UUID
 
 from TTS.api import TTS
-from flask import request, session
+from flask import request
 from flask_login import current_user
-from flask_socketio import ConnectionRefusedError, disconnect, join_room, SocketIO # pylint: disable=redefined-builtin
+from flask_socketio import join_room, SocketIO # pylint: disable=redefined-builtin
 from google.protobuf.message import DecodeError
 
-from ai import OpenAIChat, Pipeline, Whisper
+from ai import Pipeline, TransformersInference, Whisper
 from constants import DB, LOGGER, OPENAI_API_KEY
 from db import User
 from messages_pb2 import ( # pylint: disable=no-name-in-module
@@ -39,7 +39,17 @@ logger.info("Creating AI inferences.")
 asr = Whisper("openai/whisper-base.en", device="cuda:0")
 # TODO: [TTS] Add a processor to handle multispeaker models
 tts = TTS("tts_models/en/vctk/vits", gpu=True)
-text_gen = OpenAIChat("gpt-3.5-turbo", openai_api_key=OPENAI_API_KEY)
+text_gen = TransformersInference(
+    "georgesung/llama2_7b_chat_uncensored", 
+    human_string="\n\n### HUMAN:\n",
+    robot_string="\n\n### RESPONSE:\n",
+    max_context_tokens=1000,
+    device=0
+)
+STARTING_CONTEXT = """Enter RP mode. Pretend to be a college frat boy.
+
+You shall reply to the user while staying in character.
+"""
 logger.info("Finished creating inferences.")
 
 
@@ -57,6 +67,7 @@ def handle_connect():
             text_gen,
             pipeline_callback,
             tts_speaker_name="p300",
+            context=STARTING_CONTEXT,
             logger=LOGGER.getChild("pipeline"),
             # TODO: [Logging] This may be too verbose
             asr_logger=LOGGER.getChild("pipeline.asr"),

@@ -1,10 +1,18 @@
 import logging
+from threading import Thread
 from typing import Generator, Generic, List, Tuple, TypeVar
 
 import openai
 import openai.util
 import tiktoken
-
+import torch
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    pipeline,
+    TextGenerationPipeline,
+    TextIteratorStreamer
+)
 
 T = TypeVar("T")
 
@@ -36,7 +44,8 @@ class TextGenProcessor:
         self.logger = kwargs.pop("logger", None) or logging.getLogger("text_gen")
 
         self.max_context_tokens: int = kwargs.pop("max_context_tokens", 100)
-        self.context = None
+        self.context = kwargs.pop("context", None)
+        print(self.context)
 
         # Initialize inference
         self.inference: TextGenInference = None
@@ -46,6 +55,8 @@ class TextGenProcessor:
                 self.inference = OpenAI(model, **kwargs)
             elif model.startswith("gpt-3.5") or model.startswith("gpt-4"):
                 self.inference = OpenAIChat(model, **kwargs)
+            else:
+                self.inference = TransformersInference(model, **kwargs)
         else:
             self.inference = model
 
@@ -61,6 +72,7 @@ class TextGenProcessor:
             kwargs["context"] = self.context
 
         # Handle adding new text to context while streaming
+        print(kwargs)
         if kwargs.get("stream", False):
             # This generator will just yield whatever generator_from_prompt,
             # but place the return value in self.context
@@ -243,12 +255,101 @@ class OpenAIChat(TextGenInference[list]):
         return res
 
 
+class TransformersInference(TextGenInference[str]):
+    def __init__(self, model: str, **kwargs) -> None:
+        super().__init__(**kwargs)
+
+        self.model = AutoModelForCausalLM.from_pretrained(model, torch_dtype=torch.float16)
+        self.tokenizer = AutoTokenizer.from_pretrained(model)
+        self.streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True)
+        self.pipeline: TextGenerationPipeline = pipeline(
+            task="text-generation", 
+            model=self.model, 
+            tokenizer=self.tokenizer,
+            device=kwargs.get("device")
+        )
+
+        self.human_string = kwargs.pop("human_string", "")
+        self.robot_string = kwargs.pop("robot_string", "")
+
+    def generate_from_prompt(
+        self,
+        prompt: str,
+        context: T,
+        **kwargs
+    ) -> Generator[str, T, None] | Tuple[str, T]:
+        prompt = self.human_string + prompt + self.robot_string
+        print(context)
+
+        # Return the streamer and start the pipeline in a diff thread
+        if kwargs.pop("stream", False):
+            # While I don't like making a new thread, it seems this is necessary
+            Thread(target=self.pipeline, args=(prompt,), kwargs={
+                "prefix": context,
+                "max_length": 1_000,
+                "streamer": self.streamer,
+                **kwargs
+            }).start()
+            def generator():
+                # A list to store newly generated text
+                chunks = [context, prompt]
+    
+                # TODO: test if streamer can be reused like this
+                for word in self.streamer:
+                    chunks.append(word)
+                    print(chunks)
+                    yield word
+
+                # Return full new text
+                return "".join(chunks)
+            return generator()
+        else:
+            res = self.pipeline(
+                prompt,
+                return_full_text=False,
+                prefix=context,
+                max_length=1_000,
+                **kwargs
+            )
+        text = res[0]["generated_text"]
+        return (text, context + text)
+
+    def encode(self, string: str) -> List[int]:
+        return self.tokenizer.encode(string)
+
+    def decode(self, tokens: List[int]) -> str:
+        return self.tokenizer.decode(tokens)
+
+    def trim_context(self, context: str, token_limit: int = 1_000) -> str:
+        # Ensure context is a string
+        if context is None:
+            context = ""
+        elif not isinstance(context, str):
+            raise ValueError("TransformersInference context must be a string.")
+
+        # Trim tokens by converting to tokens and just taking however many
+        # tokens from the end of the tokens and decode that into text
+        tokens = self.encode(context)
+        return self.decode(tokens[-token_limit:])
+
+
 if __name__ == "__main__":
     with open("secrets", "r", encoding="utf-8") as secrets_file:
         OPENAI_API_KEY = secrets_file.readline().removesuffix("\n")
-    processor = TextGenProcessor("gpt-3.5-turbo", max_context_tokens=1000, openai_api_key=OPENAI_API_KEY)
-    for token in processor.generate_from_prompt(input("what") + ". respond with a series of messages separated by \"<eom>\"", stream=True):
-        print(token, end="")
+    processor = TextGenProcessor("georgesung/llama2_7b_chat_uncensored", human_string="\n\n### HUMAN:\n", robot_string="\n\n### RESPONSE:\n", max_context_tokens=1000, openai_api_key=OPENAI_API_KEY, device=0)
+    processor.context = """Enter RP mode. Pretend to be a college frat boy.
+
+You shall reply to the user while staying in character.
+"""
+    print(processor.context)
+    while True:
+        print("\n\n### HUMAN:\n", end="")
+        thing = input()
+        print("\n\n### RESPONSE:\n", end="")
+        for word in processor.generate_from_prompt(thing, stream=True, repetition_penalty=1.2, length_penalty=0.8):
+            print(word, end="")
+    # for token in processor.generate_from_prompt(input("what") + ". respond with a series of messages separated by \"<eom>\"", stream=True):
+    #     print(token, end="")
 
 
 # pylint: disable-all

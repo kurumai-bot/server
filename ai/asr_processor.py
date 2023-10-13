@@ -10,7 +10,7 @@ from transformers import (
     AutoModelForCTC,
     AutoModelForSpeechSeq2Seq,
     AutoProcessor,
-    pipeline,
+    pipeline
 )
 
 from utils import CircularBuffer

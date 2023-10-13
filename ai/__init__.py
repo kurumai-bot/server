@@ -1,6 +1,12 @@
 from .asr_processor import ASRProcessor, LiveASRInference, SileroVAD, Wav2Vec, Whisper
 from .pipeline import Pipeline
-from .text_gen_processor import OpenAI, OpenAIChat, TextGenInference, TextGenProcessor
+from .text_gen_processor import (
+    OpenAI,
+    OpenAIChat,
+    TextGenInference,
+    TextGenProcessor,
+    TransformersInference
+)
 from .tts_processor import (
     PHONEME_TO_VISEME,
     TTSProcessor,

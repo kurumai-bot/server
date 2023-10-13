@@ -57,6 +57,7 @@ class Pipeline:
         )
 
         # Initialize text gen
+        print(kwargs)
         self.text_gen = TextGenProcessor(
             model=text_gen_model,
             logger=text_gen_logger,

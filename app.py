@@ -78,3 +78,4 @@ if __name__ == "__main__":
 # TODO: Add facial expressions and stuff. Probably just ask AI to add an expression from a list
 # given as its first prompt
 # TODO: Implement logging
+# TODO: place kwargs stuff at the top
