@@ -45,7 +45,6 @@ class TextGenProcessor:
 
         self.max_context_tokens: int = kwargs.pop("max_context_tokens", 100)
         self.context = kwargs.pop("context", None)
-        print(self.context)
 
         # Initialize inference
         self.inference: TextGenInference = None
@@ -72,7 +71,6 @@ class TextGenProcessor:
             kwargs["context"] = self.context
 
         # Handle adding new text to context while streaming
-        print(kwargs)
         if kwargs.get("stream", False):
             # This generator will just yield whatever generator_from_prompt,
             # but place the return value in self.context
@@ -284,7 +282,7 @@ class TransformersInference(TextGenInference[str]):
         # Return the streamer and start the pipeline in a diff thread
         if kwargs.pop("stream", False):
             # While I don't like making a new thread, it seems this is necessary
-            Thread(target=self.pipeline, args=(prompt,), kwargs={
+            Thread(name="generation_thread", target=self.pipeline, args=(prompt,), kwargs={
                 "prefix": context,
                 "max_length": 1_000,
                 "streamer": self.streamer,
@@ -294,10 +292,10 @@ class TransformersInference(TextGenInference[str]):
                 # A list to store newly generated text
                 chunks = [context, prompt]
     
-                # TODO: test if streamer can be reused like this
                 for word in self.streamer:
+                    # TODO: This is a monkeypatch for llama2's eos(?) token. Fix this later
+                    word = word.removesuffix("</s>")
                     chunks.append(word)
-                    print(chunks)
                     yield word
 
                 # Return full new text

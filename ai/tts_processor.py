@@ -147,6 +147,7 @@ class TTSProcessor:
         self.language: str = kwargs.get("language", None)
         # TODO: the gpu arg is kinda useless. should probably make a tts inference that wraps
         # coqui TTS
+        # TODO: the gpu arg is deprecated on TTS, fix this pls
         self.gpu: bool = kwargs.get("gpu", True)
 
         # Start TTS

@@ -150,7 +150,7 @@ class Pipeline:
                 ai_output = ""
                 iterator = iter(self.text_gen.generate_from_prompt(data, stream=True))
                 token = next(iterator, None)
-                while token:
+                while token is not None:
                     ai_output += token
                     token = next(iterator, None)
 
