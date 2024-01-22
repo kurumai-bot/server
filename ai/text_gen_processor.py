@@ -2,8 +2,7 @@ import logging
 from threading import Thread
 from typing import Generator, Generic, List, Tuple, TypeVar
 
-import openai
-import openai.util
+from openai import Client
 import tiktoken
 import torch
 from transformers import (
@@ -44,7 +43,7 @@ class TextGenProcessor:
         self.logger = kwargs.pop("logger", None) or logging.getLogger("text_gen")
 
         self.max_context_tokens: int = kwargs.pop("max_context_tokens", 100)
-        self.context = kwargs.pop("context", None)
+        self.context = kwargs.pop("context", "")
 
         # Initialize inference
         self.inference: TextGenInference = None
@@ -53,6 +52,7 @@ class TextGenProcessor:
             if model.startswith("text-") and "code" not in model:
                 self.inference = OpenAI(model, **kwargs)
             elif model.startswith("gpt-3.5") or model.startswith("gpt-4"):
+                self.context = [{"role": "system", "content": self.context}]
                 self.inference = OpenAIChat(model, **kwargs)
             else:
                 self.inference = TransformersInference(model, **kwargs)
@@ -99,10 +99,7 @@ class OpenAI(TextGenInference[str]):
 
         self.model = model
 
-        if "openai_api_key" not in kwargs:
-            self.api_key = openai.util.default_api_key()
-        else:
-            self.api_key = kwargs.pop("openai_api_key")
+        self.client = Client(api_key=kwargs.pop("openai_api_key", None))
 
         try:
             self.tokenizer = tiktoken.encoding_for_model(model)
@@ -120,9 +117,6 @@ class OpenAI(TextGenInference[str]):
         if "model" not in kwargs:
             kwargs["model"] = self.model
 
-        if "api_key" not in kwargs:
-            kwargs["api_key"] = self.api_key
-
         prompt = context + prompt
         kwargs["prompt"] = prompt
 
@@ -131,15 +125,15 @@ class OpenAI(TextGenInference[str]):
             def generator():
                 # A list to store newly generated text
                 chunks = [prompt]
-                for event in openai.Completion.create(**kwargs):
-                    chunks.append(event["choices"][0]["text"])
-                    yield event["choices"][0]["text"]
+                for chunk in self.client.completions.create(**kwargs):
+                    chunks.append(chunk.choices[0].text)
+                    yield chunk.choices[0].text
 
                 # Return full new text
                 return "".join(chunks)
             return generator()
 
-        res = openai.Completion.create(**kwargs)["choices"][0]["text"]
+        res = self.client.completions.create(**kwargs).choices[0].text
         return (res, context + res)
 
     def encode(self, string: str) -> List[int]:
@@ -167,10 +161,7 @@ class OpenAIChat(TextGenInference[list]):
 
         self.model = model
 
-        if "openai_api_key" not in kwargs:
-            self.api_key = openai.util.default_api_key()
-        else:
-            self.api_key = kwargs.pop("openai_api_key")
+        self.client = Client(api_key=kwargs.pop("openai_api_key", None))
 
         self.tokenizer = tiktoken.encoding_for_model(model)
 
@@ -183,9 +174,6 @@ class OpenAIChat(TextGenInference[list]):
         # Add model, api key, and messages into request
         if "model" not in kwargs:
             kwargs["model"] = self.model
-
-        if "api_key" not in kwargs:
-            kwargs["api_key"] = self.api_key
 
         # Don't want to modify in place, copy instead
         messages = context.copy()
@@ -200,22 +188,22 @@ class OpenAIChat(TextGenInference[list]):
 
                 # The first event will return the name of the role,
                 # the subsequent events will be the actual text
-                for event in openai.ChatCompletion.create(**kwargs):
-                    delta = event["choices"][0]["delta"]
-                    if "role" in delta:
-                        role = delta["role"]
-                    elif "content" in delta:
-                        chunks.append(delta["content"])
-                        yield delta["content"]
+                for chunk in self.client.chat.completions.create(**kwargs):
+                    delta = chunk.choices[0].delta
+                    if delta.role is not None:
+                        role = delta.role
+                    if delta.content is not None and delta.content != "":
+                        chunks.append(delta.content)
+                        yield delta.content
 
                 messages.append({"role": role, "content": "".join(chunks)})
                 # Return full new text
                 return messages
             return generator()
 
-        res = openai.ChatCompletion.create(**kwargs)["choices"][0]["message"]
+        res = self.client.chat.completions.create(**kwargs).choices[0].message
         messages.append(res)
-        return (res["content"], messages)
+        return (res.content, messages)
 
     def encode(self, string: str) -> List[int]:
         return self.tokenizer.encode(string)
@@ -240,6 +228,8 @@ class OpenAIChat(TextGenInference[list]):
         for message in reversed(context):
             token_count += 4
             for key, value in message.items():
+                if value is None or value == "":
+                    continue
                 token_count += len(self.encode(value))
                 if key == "name":
                     token_count -= 1

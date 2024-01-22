@@ -9,7 +9,7 @@ from psycopg import sql
 from psycopg.rows import dict_row
 from utils import Cache
 
-from .models import Conversation, DatabaseObject, Message, User, UserCredential
+from .models import Conversation, DatabaseObject, Message, ModelPreset, User, UserCredential
 
 
 # TODO: update queries to not be broken with the db changes
@@ -38,6 +38,13 @@ get_user_credentials_query = sql.SQL(
     "SELECT * FROM {} WHERE {}=%s"
 ).format(
     sql.Identifier("user_credential"),
+    sql.Identifier("user_id")
+)
+
+get_user_model_presets_query = sql.SQL(
+    "SELECT * FROM {} WHERE {}=%s LIMIT %s;"
+).format(
+    sql.Identifier("model_preset"),
     sql.Identifier("user_id")
 )
 
@@ -122,6 +129,26 @@ send_message_query = sql.SQL(
     sql.Identifier("created_at")
 )
 
+get_model_preset_query = sql.SQL(
+    "SELECT * FROM {} WHERE {}=%s"
+).format(
+    sql.Identifier("model_preset"),
+    sql.Identifier("model_preset_id")
+)
+
+create_model_preset_query = sql.SQL(
+    "INSERT INTO {} ({}, {}, {}, {}, {}, {}, {}) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+).format(
+    sql.Identifier("model_preset"),
+    sql.Identifier("user_id"),
+    sql.Identifier("model_preset_name"),
+    sql.Identifier("text_gen_model_name"),
+    sql.Identifier("text_gen_starting_context"),
+    sql.Identifier("tts_model_name"),
+    sql.Identifier("tts_speaker_name"),
+    sql.Identifier("created_at")
+)
+
 
 RT = TypeVar("RT")
 GetCacheFunc = Callable[["Database", UUID], RT]
@@ -183,6 +210,14 @@ class Database:
             return None
         return User(data, self)
 
+    # No caching since credential lookup is only for login
+    def get_user_credentials(self, id: UUID) -> UserCredential | None:
+        cursor = self.cursor.execute(get_user_credentials_query, (id,))
+        data = cursor.fetchone()
+        if data is None:
+            return None
+        return UserCredential(data)
+
     @_get_cache()
     def get_user_conversations(self, id: UUID, limit = 100) -> List[Conversation]:
         cursor = self.cursor.execute(get_user_conversations_query, (id, limit))
@@ -191,13 +226,12 @@ class Database:
             return []
         return [Conversation(dict_, self) for dict_ in data]
 
-    # No caching since credential lookup is only for login
-    def get_user_credentials(self, id: UUID) -> UserCredential | None:
-        cursor = self.cursor.execute(get_user_credentials_query, (id,))
-        data = cursor.fetchone()
+    def get_user_model_presets(self, id: UUID, limit = 100) -> List[ModelPreset]:
+        cursor = self.cursor.execute(get_user_model_presets_query, (id, limit))
+        data = cursor.fetchall()
         if data is None:
-            return None
-        return UserCredential(data)
+            return []
+        return [ModelPreset(dict_, self) for dict_ in data]
 
     def create_user(
         self,
@@ -361,6 +395,57 @@ class Database:
         self.conn.commit()
         self.logger.debug("Message created with the following parameters: %s", data)
         return message
+
+    def get_model_preset(self, id: UUID) -> ModelPreset | None:
+        cursor = self.cursor.execute(get_model_preset_query, (id,))
+        data = cursor.fetchone()
+        if data is None:
+            return None
+        return ModelPreset(data, self)
+
+    def create_model_preset(
+        self,
+        user_id: UUID,
+        text_gen_model_name: str = None,
+        tts_model_name: str = None,
+        name: str = None,
+        text_gen_starting_context: str = None,
+        tts_speaker_name: str = None,
+        created_at: datetime = None
+    ) -> ModelPreset:
+        data = {
+            "model_preset_id": uuid4(),
+            "user_id": user_id,
+            "model_preset_name": name,
+            "text_gen_model_name": text_gen_model_name,
+            "text_gen_starting_context": text_gen_starting_context,
+            "tts_model_name": tts_model_name,
+            "tts_speaker_name": tts_speaker_name,
+            "created_at": created_at or datetime.utcnow()
+        }
+        model_preset = ModelPreset(data, self)
+
+        # Add to db
+        self.cursor.execute(
+            create_model_preset_query,
+            (
+                model_preset.id,
+                model_preset.user_id,
+                model_preset.name,
+                model_preset.text_gen_model_name,
+                model_preset.text_gen_starting_context,
+                model_preset.tts_model_name,
+                model_preset.tts_speaker_name,
+                model_preset.created_at
+            )
+        )
+
+        # Add to cache
+        self.cache.add(f"model_preset_{model_preset.id}", model_preset)
+
+        self.conn.commit()
+        self.logger.debug("ModelPreset created with the following parameters: %s", data)
+        return model_preset
 
     def from_dict(self, data: Dict[str, Any]) -> DatabaseObject:
         if data["type"] == "Message":

@@ -145,16 +145,17 @@ class TTSProcessor:
 
         self.speaker_name: str = kwargs.get("speaker_name", None)
         self.language: str = kwargs.get("language", None)
-        # TODO: the gpu arg is kinda useless. should probably make a tts inference that wraps
-        # coqui TTS
-        # TODO: the gpu arg is deprecated on TTS, fix this pls
         self.gpu: bool = kwargs.get("gpu", True)
 
         # Start TTS
         if isinstance(model, str):
-            self.tts_wrapper = TTS(model, gpu=self.gpu, progress_bar=False)
+            self.tts_wrapper = TTS(model, progress_bar=False)
         else:
             self.tts_wrapper = model
+
+        if self.gpu:
+            self.tts_wrapper.to("cuda")
+
         self.synthesizer = self.tts_wrapper.synthesizer
         self.sample_rate: int = self.synthesizer.output_sample_rate
         self.tts_config: Coqpit = self.synthesizer.tts_config

@@ -6,12 +6,12 @@ from threading import Thread
 import traceback
 from typing import Any, Callable, Tuple
 
-from TTS.api import TTS
 import numpy as np
 
-from ai.asr_processor import ASRProcessor, LiveASRInference
-from ai.text_gen_processor import TextGenInference, TextGenProcessor
+from ai.asr_processor import ASRProcessor
+from ai.text_gen_processor import TextGenProcessor
 from ai.tts_processor import TTSProcessor
+from db import ModelPreset
 from utils import CircularBuffer
 
 
@@ -20,12 +20,12 @@ sentence_end_regex = re.compile(r"[.?!][.?!\s]+")
 class Pipeline:
     def __init__(
         self,
-        asr_model: LiveASRInference,
-        tts_model: TTS,
-        text_gen_model: TextGenInference,
+        model_preset: ModelPreset,
         callback: Callable[[str, datetime, Any, Any], Any],
         **kwargs
     ) -> None:
+        #TODO: Don't create new models for every connection
+
         # Start logger
         self.logger = kwargs.pop("logger", None) or logging.getLogger("pipeline")
 
@@ -41,7 +41,7 @@ class Pipeline:
 
         # Initialize STT
         self.asr = ASRProcessor(
-            asr_model,
+            "openai/whisper-base.en",
             logger=asr_logger,
             **kwargs
         )
@@ -50,17 +50,18 @@ class Pipeline:
 
         # Initialize TTS
         self.tts = TTSProcessor(
-            tts_model,
+            model_preset.tts_model_name,
             logger=tts_logger,
             gpu=gpu,
+            speaker_name=model_preset.tts_speaker_name,
             **kwargs
         )
 
         # Initialize text gen
-        print(kwargs)
         self.text_gen = TextGenProcessor(
-            model=text_gen_model,
+            model=model_preset.text_gen_model_name,
             logger=text_gen_logger,
+            context=model_preset.text_gen_starting_context,
             **kwargs
         )
 
@@ -73,6 +74,7 @@ class Pipeline:
         self.callback = callback
         self.current_input = ""
         self._cancel_current = False
+
 
     def start(self):
         self._run_thread = True

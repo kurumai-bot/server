@@ -40,3 +40,16 @@ CREATE TABLE message (
 
 CREATE INDEX message_conversation_idx ON message (conversation_id);
 CREATE INDEX message_created_at_idx ON message (created_at);
+
+CREATE TABLE model_preset (
+    model_preset_id uuid PRIMARY KEY DEFAULT gen_random_uuid()
+  , user_id uuid NOT NULL REFERENCES usr (user_id) ON UPDATE CASCADE
+  , model_preset_name varchar(32) NOT NULL DEFAULT ''
+  , text_gen_model_name varchar(128) NOT NULL DEFAULT ''
+  , text_gen_starting_context varchar(4096) NOT NULL DEFAULT ''
+  , tts_model_name varchar(128) NOT NULL DEFAULT ''
+  , tts_speaker_name varchar(128) NOT NULL DEFAULT ''
+  , created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX model_preset_user_idx ON model_preset (user_id);

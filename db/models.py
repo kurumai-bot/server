@@ -77,6 +77,24 @@ class Message(DatabaseObject["Message"]):
         return self._db.get_conversation(self.conversation_id)
 
 
+class ModelPreset(DatabaseObject["ModelPreset"]):
+    def __init__(self, data: Dict[str, Any], db: Database) -> None:
+        super().__init__(data)
+
+        self._db = db
+
+        self.id = data["model_preset_id"]
+        self.user_id: UUID = data["user_id"]
+        self.name: str = data["model_preset_name"]
+        self.text_gen_model_name: str = data["text_gen_model_name"]
+        self.text_gen_starting_context: str = data["text_gen_starting_context"]
+        self.tts_model_name: str = data["tts_model_name"]
+        self.tts_speaker_name: str = data["tts_speaker_name"]
+
+    def get_user(self) -> User | None:
+        return self._db.get_user(self.user_id)
+
+
 class User(DatabaseObject["User"], UserMixin):
     def __init__(self, data: Dict[str, Any], db: Database) -> None:
         super().__init__(data)
