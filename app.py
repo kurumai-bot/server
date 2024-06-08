@@ -6,7 +6,7 @@ from flask_cors import CORS
 from flask_login import LoginManager
 from flask_socketio import SocketIO
 
-from constants import DB, LOGGER, SECRET_KEY
+from constants import DB, HOST, LOGGER, PORT, SECRET_KEY
 from db import User
 import endpoints
 import sockets
@@ -66,7 +66,7 @@ socketio.start_background_task(sockets.poll_pipeline_loop(socketio.sleep))
 if __name__ == "__main__":
     LOGGER.info("Starting listener server.")
     try:
-        socketio.run(app)
+        socketio.run(app, host=HOST, port=PORT)
     finally:
         LOGGER.info("Releasing DB resources.")
         DB.close()

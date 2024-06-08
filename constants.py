@@ -29,6 +29,10 @@ file_handler.setLevel(logging.DEBUG)
 LOGGER.addHandler(file_handler)
 
 
+HOST = "LOCALHOST"
+PORT = 8080
+
+
 with open("secrets", "r", encoding="utf-8") as secrets_file:
     OPENAI_API_KEY = secrets_file.readline().removesuffix("\n")
     SECRET_KEY = secrets_file.readline().removesuffix("\n")
