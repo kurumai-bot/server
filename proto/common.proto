@@ -40,22 +40,21 @@ message StartMessage {
 }
 
 
-message SocketEvent {
-    optional string event = 1;
-    optional string id = 2;
-    oneof payload {
-        TTSMessage tts_message = 3;
-        Message message = 4;
-        StartMessage start_message = 5;
-        Conversation conversation = 6;
-    }
-}
-
-
 message Conversation {
     optional string id = 1;
     optional string name = 2;
     optional string user_id = 3;
     optional string bot_user_id = 4;
     optional google.protobuf.Timestamp created_at = 5;
+}
+
+
+message ModelPreset {
+    optional string id = 1;
+    optional string name = 2;
+    optional string user_id = 3;
+    optional string text_gen_model_name = 4;
+    optional string text_gen_starting_context = 5;
+    optional string tts_model_name = 6;
+    optional string tts_speaker_name = 7;
 }
