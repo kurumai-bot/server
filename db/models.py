@@ -84,8 +84,8 @@ class ModelPreset(DatabaseObject["ModelPreset"]):
         self._db = db
 
         self.id = data["model_preset_id"]
-        self.user_id: UUID = data["user_id"]
         self.name: str = data["model_preset_name"]
+        self.user_id: UUID = data["user_id"]
         self.text_gen_model_name: str = data["text_gen_model_name"]
         self.text_gen_starting_context: str = data["text_gen_starting_context"]
         self.tts_model_name: str = data["tts_model_name"]
