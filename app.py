@@ -6,7 +6,7 @@ from flask_cors import CORS
 from flask_login import LoginManager
 from flask_socketio import SocketIO
 
-from constants import DB, HOST, LOGGER, PORT, SECRET_KEY
+from constants import AIINTERFACE, DB, HOST, LOGGER, PORT, SECRET_KEY
 from db import User
 import endpoints
 import sockets
@@ -70,6 +70,8 @@ if __name__ == "__main__":
     finally:
         LOGGER.info("Releasing DB resources.")
         DB.close()
+        LOGGER.info("Releasing AI Interface resources")
+        AIINTERFACE.close()
 
 # TODO: consider making a base class for processors that has like a __call__ or process() function
 # that could return values by blocking, then create a thread per connection to handle all the funky

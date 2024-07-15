@@ -1,15 +1,17 @@
 from datetime import datetime
 from uuid import UUID, uuid4
+
 from flask import request
 from flask.views import MethodView
 from flask_login import current_user, login_required, login_user, logout_user
 from flask_socketio import emit
+import orjson
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from constants import DB
+from constants import AIINTERFACE, DB
 import db
-from messages_pb2 import Message as ProtoMessage, Conversation as ProtoConversation, SocketEvent # pylint: disable=no-name-in-module
-from utils import abort_if_none, datetime_to_timestamp, list_to_dict, get_session_data
+from db.models import ModelPreset
+from utils import abort_if_none, list_to_dict, get_session_data
 
 
 current_user: db.User
@@ -50,20 +52,20 @@ class Conversations(MethodView):
         # Tell other connected clients that a channel was made
         session_data = get_session_data()
         if session_data is not None:
-            socket_event = SocketEvent(
-                event="create_channel",
-                id=str(uuid4()),
-                conversation=ProtoConversation(
-                    id=str(conversation.id),
-                    name=conversation.name,
-                    user_id=str(conversation.user_id),
-                    bot_user_id=str(conversation.bot_user_id),
-                    created_at=datetime_to_timestamp(conversation.created_at)
-                )
-            )
+            socket_event = {
+                "event": "create_channel",
+                "id": str(uuid4()),
+                "conversation": {
+                    "id": str(conversation.id),
+                    "name": conversation.name,
+                    "user_id": str(conversation.user_id),
+                    "bot_user_id": str(conversation.bot_user_id),
+                    "created_at": conversation.created_at
+                }
+            }
             emit(
                 "create_channel",
-                socket_event.SerializeToString(),
+                orjson.dumps(socket_event),
                 namespace="/",
                 to=current_user.id,
             )
@@ -166,23 +168,32 @@ class Messages(MethodView):
 
         session_data = get_session_data()
         if session_data is not None:
-            session_data.process_data(content)
+            AIINTERFACE.set_preset(uuid4(), ModelPreset({
+                "model_preset_id": "",
+                "user_id": "",
+                "model_preset_name": "",
+                "text_gen_model_name": "gpt-3.5-turbo-1106",
+                "text_gen_starting_context": "please help me",
+                "tts_model_name": "tts_models/en/vctk/vits",
+                "tts_speaker_name": "p300",
+                "created_at": datetime.now()
+            }, None))
 
             # Tell other connected clients that a message was sent
-            socket_event = SocketEvent(
-                event="send_message",
-                id=str(uuid4()),
-                message=ProtoMessage(
-                    id=str(message.id),
-                    user_id=str(message.user_id),
-                    conversation_id=str(message.conversation_id),
-                    content=message.content,
-                    created_at=datetime_to_timestamp(message.created_at)
-                )
-            )
+            socket_event = {
+                "event": "send_message",
+                "id": str(uuid4()),
+                "message": {
+                    "id": str(message.id),
+                    "user_id": str(message.user_id),
+                    "conversation_id": str(message.conversation_id),
+                    "content": message.content,
+                    "created_at": message.created_at
+                }
+            }
             emit(
                 "send_message",
-                socket_event.SerializeToString(),
+                orjson.dumps(socket_event),
                 namespace="/",
                 to=current_user.id,
             )

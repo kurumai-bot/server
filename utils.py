@@ -1,26 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+import datetime
+from datetime import datetime, timedelta, timezone
 import logging
-import signal
 from threading import Thread
 import time
 import traceback
 from typing import Any, Callable, Dict, List, Set, Tuple, TYPE_CHECKING, Type, TypeVar
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from flask import abort, current_app, Flask, session
 from flask.json.provider import JSONProvider
 from flask.views import View
 from flask_login import UserMixin, current_user
 from flask_socketio import disconnect
-from google.protobuf.timestamp_pb2 import Timestamp # pylint: disable=no-name-in-module
-import numpy as np
 import orjson
 
+
 if TYPE_CHECKING:
-    from ai import Pipeline
     from db import DatabaseObject
 
 
@@ -37,45 +35,6 @@ class StdOutRedirect():
 
     def flush(self) -> None:
         pass
-
-
-class CircularBuffer:
-    def __init__(self, size: int, **kwargs) -> None:
-        self.size = size
-        self.dtype: np.dtype = kwargs.get("dtype", np.float32)
-        self.index = 0
-        self.buffer = np.empty(self.size, dtype=self.dtype)
-
-    def add(self, data: np.ndarray) -> np.ndarray:
-        # Number of return values will be current length of the buffer plus length of data
-        # floor divided by buffer capacity
-        ret = np.empty(((self.index + len(data)) // self.size, self.size))
-        data_index = 0
-
-        if len(ret) > 0:
-            # Fill first ret value with a combination of current buffer data and passed in data
-            ret[0][:self.index] = self.buffer[:self.index]
-            data_index = self.size - self.index
-            ret[0][self.index:] = data[:data_index]
-            self.index = 0
-
-            # Fill remaining buffers with however much data they can hold
-            for i in range(1, len(ret)):
-                ret[i] = data[data_index:data_index + self.size]
-                data_index += self.size
-
-        # Fill buffer with remaining data in passed in data
-        start = self.index
-        self.index = start + len(data) - data_index
-        self.buffer[start:self.index] = data[data_index:]
-
-        return ret
-
-    def clear(self) -> None:
-        self.index = 0
-
-    def get(self) -> np.ndarray:
-        return self.buffer[:self.index]
 
 
 class ORJSONProvider(JSONProvider):
@@ -103,7 +62,6 @@ class Cache:
 
         self._thread = Thread(target=self._cache_loop)
         self._run_loop = True
-        self._original_handler = signal.signal(signal.SIGINT, self._on_exit)
 
     def __contains__(self, val: Any) -> bool:
         return val in self.items
@@ -121,7 +79,7 @@ class Cache:
         if ttl is None:
             ttl = timedelta(minutes=15)
 
-        expire_time = datetime.utcnow() + ttl
+        expire_time = datetime.now(timezone.utc) + ttl
         self.items[key] = (expire_time, item)
         self.logger.debug("Item with key `%s` added, set to expire at %s.", key, expire_time)
 
@@ -129,13 +87,16 @@ class Cache:
         self._run_loop = True
         self._thread.start()
 
+    def __enter__(self) -> Cache:
+        self.start()
+        return self
+
     def close(self) -> None:
         self._run_loop = False
         self._thread.join()
 
-    def _on_exit(self, code, frame) -> None:
+    def __exit__(self, *args):
         self.close()
-        self._original_handler(code, frame)
 
     def _cache_loop(self) -> None:
         while self._run_loop:
@@ -145,7 +106,7 @@ class Cache:
                     continue
 
                 min_ = min(self.items.items(), key=lambda x: x[1][0])
-                if min_[1][0] < datetime.utcnow():
+                if min_[1][0] < datetime.now(timezone.utc):
                     # Remove expired items
                     self.items.pop(min_[0])
                     self.logger.debug("Removed expired item with key `%s`.", min_[0])
@@ -181,16 +142,8 @@ def socket_login_required(func: Callable[..., RT]):
 
 @dataclass
 class SessionData:
-    pipeline: Pipeline
     user_id: UUID
     sessions: Set[str] = field(default_factory=set)
-
-    def process_data(self, data: str | bytes):
-        self.pipeline.process_input(
-            data,
-            datetime.utcnow(),
-            callback_data=(self, current_app.extensions["socketio"], uuid4())
-        )
 
 def get_session_data() -> SessionData | None:
     # Session "_id" and "_user_id" are from Flask-Login and the combination of the two *should*
@@ -240,10 +193,3 @@ def add_url_rule_view(
         provide_automatic_options=provide_automatic_options,
         **options
     )
-
-
-def datetime_to_timestamp(val: datetime) -> Timestamp:
-    seconds = val.timestamp()
-    nanos = (seconds % 1) * 1_000_000_000
-
-    return Timestamp(seconds=int(seconds), nanos=int(nanos))

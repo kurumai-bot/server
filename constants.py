@@ -4,6 +4,7 @@ import os
 from os import path
 import time
 
+from ai_interface import AIInterface
 from db import Database
 
 
@@ -33,10 +34,19 @@ HOST = "LOCALHOST"
 PORT = 8080
 
 
+SERVICE_HOST = "LOCALHOST"
+SERVICE_PORT = 8079
+
+
 with open("secrets", "r", encoding="utf-8") as secrets_file:
-    OPENAI_API_KEY = secrets_file.readline().removesuffix("\n")
+    SERVICE_AUTH_KEY = secrets_file.readline().removesuffix("\n").encode()
     SECRET_KEY = secrets_file.readline().removesuffix("\n")
     DB_URL = secrets_file.readline().removesuffix("\n")
 
 
 DB = Database(DB_URL, logger=LOGGER.getChild("db"), cache_logger=LOGGER.getChild("db.cache"))
+
+
+AIINTERFACE = AIInterface(SERVICE_HOST, SERVICE_PORT,
+                          SERVICE_AUTH_KEY, logger=LOGGER.getChild("interface"))
+AIINTERFACE.start()

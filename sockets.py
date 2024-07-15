@@ -7,24 +7,13 @@ from uuid import UUID
 from flask import request
 from flask_login import current_user
 from flask_socketio import join_room, SocketIO # pylint: disable=redefined-builtin
-from google.protobuf.message import DecodeError
+import orjson
 
-from ai import Pipeline
-from constants import DB, LOGGER, OPENAI_API_KEY
-from db import ModelPreset, User
-from messages_pb2 import ( # pylint: disable=no-name-in-module
-    Expression,
-    Message,
-    MicPacket,
-    SocketEvent,
-    StartMessage,
-    TTSMessage,
-    Viseme
-)
+from constants import AIINTERFACE, DB, LOGGER
+from db import User
 from utils import (
     SessionData,
     add_session_data,
-    datetime_to_timestamp,
     get_session_data,
     pop_session_data,
     socket_login_required
@@ -33,25 +22,8 @@ from utils import (
 
 current_user: User
 logger = LOGGER.getChild("sockets")
-logger.info("Creating AI inferences.")
 # TODO: [Pipeline config]
-# asr = Whisper("openai/whisper-base.en", device="cuda:0")
 # TODO: [TTS] Add a processor to handle multispeaker models
-# tts = TTS("tts_models/en/vctk/vits", gpu=True)
-# text_gen = OpenAIChat("gpt-3.5-turbo-1106", openai_api_key=OPENAI_API_KEY)
-
-# text_gen = TransformersInference(
-#     "georgesung/llama2_7b_chat_uncensored",
-#     human_string="\n\n### HUMAN:\n",
-#     robot_string="\n\n### RESPONSE:\n",
-#     max_context_tokens=1000,
-#     device=0
-# )
-STARTING_CONTEXT = """Enter RP mode. Pretend to be a college frat boy.
-
-You shall reply to the user while staying in character.
-"""
-logger.info("Finished creating inferences.")
 
 
 # TODO: Add message history to thing
@@ -59,31 +31,7 @@ logger.info("Finished creating inferences.")
 def handle_connect():
     session_data = get_session_data()
     if session_data is None:
-        # TODO: [Pipeline config]
-        def pipeline_callback(event: str, timestamp: datetime, data: Any, callback_data: Any):
-            pipeline_complete_queue.put((event, timestamp, data, callback_data))
-        pipeline = Pipeline(
-            ModelPreset({
-                "model_preset_id": "",
-                "user_id": "",
-                "model_preset_name": "",
-                "text_gen_model_name": "gpt-3.5-turbo-1106",
-                "text_gen_starting_context": STARTING_CONTEXT,
-                "tts_model_name": "tts_models/en/vctk/vits",
-                "tts_speaker_name": "p300",
-                "created_at": datetime.now()
-            }, None),
-            pipeline_callback,
-            logger=LOGGER.getChild("pipeline"),
-            # TODO: [Logging] This may be too verbose
-            asr_logger=LOGGER.getChild("pipeline.asr"),
-            tts_logger=LOGGER.getChild("pipeline.tts"),
-            text_gen_logger=LOGGER.getChild("pipeline.text_gen"),
-            openai_api_key=OPENAI_API_KEY
-        )
-        pipeline.start()
-
-        add_session_data(SessionData(pipeline, current_user.id, { request.sid }))
+        add_session_data(SessionData(current_user.id, { request.sid }))
     else:
         session_data.sessions.add(request.sid)
 
@@ -98,7 +46,6 @@ def handle_disconnect():
     session_data = get_session_data()
     if len(session_data.sessions) == 1:
         pop_session_data()
-        session_data.pipeline.stop()
     else:
         session_data.sessions.remove(request.sid)
 
@@ -137,13 +84,16 @@ def poll_pipeline_loop(sleep: Callable[[float], Any]) -> Callable:
 
                 # Started either asr or AI generation. Either way, we just notify the client.
                 if event == "start":
-                    socket_event = SocketEvent(
-                        event=event,
-                        id=str(id),
-                        start_message=StartMessage(type=data[0], details=data[1])
-                    )
+                    socket_event = {
+                        "event": event,
+                        "id": str(id),
+                        "start_message": {
+                            "type":data[0], 
+                            "details":data[1]
+                        }
+                    }
                     # Cant use the static emit function because this is not in a flask context
-                    socket.emit(event, socket_event.SerializeToString(), to=session_data.user_id)
+                    socket.emit(event, orjson.dumps(socket_event), to=session_data.user_id)
 
                 # Finished generating AI response and TTS data. This event is called per sentence of
                 # the AI response, so it may be called multiple times after `start_gen` is.
@@ -158,8 +108,8 @@ def poll_pipeline_loop(sleep: Callable[[float], Any]) -> Callable:
 
                 # Pipeline is finished
                 elif event == "finish":
-                    socket_event = SocketEvent(event="finish", id=str(id))
-                    socket.emit(event, socket_event.SerializeToString(), to=session_data.user_id)
+                    socket_event = { "event": "finish", "id": str(id) }
+                    socket.emit(event, orjson.dumps(socket_event), to=session_data.user_id)
 
                 else:
                     raise ValueError(f"Event `{event}` is not supported by the pipeline poll loop.")
@@ -183,12 +133,12 @@ def _on_finish_gen(
     for start_time, visemes in data["expressions"]:
         if isinstance(visemes, list):
             visemes = [
-                Viseme(index=viseme.index, weight=viseme.weight)
+                { "index": viseme.index, "weight": viseme.weight }
                 for viseme in visemes
             ]
         else:
-            visemes = [Viseme(index=visemes.index, weight=visemes.weight)]
-        expressions.append(Expression(visemes=visemes, start_time=start_time))
+            visemes = [{ "index": visemes.index, "weight": visemes.weight }]
+        expressions.append({ "visemes": visemes, "start_time": start_time })
 
     # TODO: [User Management] Temp!!!
     message = DB.send_message(
@@ -197,25 +147,25 @@ def _on_finish_gen(
         data["text"],
         created_at=timestamp
     )
-    socket_event = SocketEvent(
-        event="finish_gen",
-        id=str(id),
-        tts_message=TTSMessage(
-            message=Message(
-                id=str(message.id),
-                user_id=str(message.user_id),
-                conversation_id=str(message.conversation_id),
-                content=message.content,
-                created_at=datetime_to_timestamp(message.created_at)
-            ),
-            expressions=expressions,
+    socket_event = {
+        "event": "finish_gen",
+        "id": str(id),
+        "tts_message": {
+            "message": {
+                "id": str(message.id),
+                "user_id": str(message.user_id),
+                "conversation_id": str(message.conversation_id),
+                "content": message.content,
+                "created_at": message.created_at
+            },
+            "expressions": expressions,
             # TODO: Send more complex wav data than just the waveform, since the client is
             # guessing the samplerate
-            data=data["wav"].tobytes()
-        )
-    )
+            "data": data["wav"].tobytes()
+        }
+    }
 
-    socket.emit("finish_gen", socket_event.SerializeToString(), to=session_data.user_id)
+    socket.emit("finish_gen", orjson.dumps(socket_event), to=session_data.user_id)
 
 def _on_finish_asr(
     timestamp: datetime,
@@ -225,8 +175,8 @@ def _on_finish_asr(
     id: UUID
 ) -> None:
     if data == "" or data.isspace():
-        socket_event = SocketEvent(event="finish_asr", id=str(id))
-        socket.emit("finish_asr", socket_event.SerializeToString(), to=session_data.user_id)
+        socket_event = { "event": "finish_asr", "id": str(id) }
+        socket.emit("finish_asr", orjson.dumps(socket_event), to=session_data.user_id)
         return
 
     # TODO: [User Management] Temp!!!
@@ -236,16 +186,16 @@ def _on_finish_asr(
         data,
         created_at=timestamp
     )
-    socket_event = SocketEvent(
-        event="finish_asr",
-        id=str(id),
-        message=Message(
-            id=str(message.id),
-            user_id=str(message.user_id),
-            conversation_id=str(message.conversation_id),
-            content=message.content,
-            created_at=datetime_to_timestamp(message.created_at)
-        )
-    )
+    socket_event = {
+        "event":" finish_asr",
+        "id": str(id),
+        "message": {
+            "id": str(message.id),
+            "user_id": str(message.user_id),
+            "conversation_id": str(message.conversation_id),
+            "content": message.content,
+            "created_at": message.created_at
+        }
+    }
 
-    socket.emit("finish_asr", socket_event.SerializeToString(), to=session_data.user_id)
+    socket.emit("finish_asr", orjson.dumps(socket_event), to=session_data.user_id)
