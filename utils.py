@@ -83,17 +83,34 @@ class Cache:
         self.items[key] = (expire_time, item)
         self.logger.debug("Item with key `%s` added, set to expire at %s.", key, expire_time)
 
+    def remove(self, key: str) -> bool:
+        if key not in self.items:
+            return False
+
+        item = self.items.pop(key)[1]
+
+        # Release resources by calling __exit__
+        exit_method = getattr(item, "__exit__", None)
+        if callable(exit_method):
+            exit_method(item)
+
+        return True
+
     def start(self) -> None:
         self._run_loop = True
         self._thread.start()
 
-    def __enter__(self) -> Cache:
+    def __enter__(self) -> "Cache":
         self.start()
         return self
 
     def close(self) -> None:
         self._run_loop = False
-        self._thread.join()
+        if self._thread.is_alive():
+            self._thread.join()
+
+        while len(self.items) > 0:
+            self.remove(next(iter(self.items)))
 
     def __exit__(self, *args):
         self.close()
@@ -107,8 +124,7 @@ class Cache:
 
                 min_ = min(self.items.items(), key=lambda x: x[1][0])
                 if min_[1][0] < datetime.now(timezone.utc):
-                    # Remove expired items
-                    self.items.pop(min_[0])
+                    self.remove(min_[0])
                     self.logger.debug("Removed expired item with key `%s`.", min_[0])
 
                 time.sleep(1)
