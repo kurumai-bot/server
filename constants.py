@@ -23,7 +23,7 @@ LOGGER.addHandler(stream_handler)
 if not path.isdir("logs"):
     os.mkdir("logs")
 file_handler = logging.FileHandler(
-    path.join("logs", datetime.now().strftime("%d-%m-%Y--%H-%M-%S") + ".log")
+    path.join("logs", datetime.now().strftime("%Y-%m-%d--%H-%M-%S") + ".log")
 )
 file_handler.setFormatter(LOGGER_FORMATTER)
 file_handler.setLevel(logging.DEBUG)
@@ -47,6 +47,11 @@ with open("secrets", "r", encoding="utf-8") as secrets_file:
 DB = Database(DB_URL, logger=LOGGER.getChild("db"), cache_logger=LOGGER.getChild("db.cache"))
 
 
-AIINTERFACE = AIInterface(SERVICE_HOST, SERVICE_PORT,
-                          SERVICE_AUTH_KEY, logger=LOGGER.getChild("interface"))
+AIINTERFACE = AIInterface(
+    SERVICE_HOST,
+    SERVICE_PORT,
+    SERVICE_AUTH_KEY,
+    None,
+    logger=LOGGER.getChild("interface")
+)
 AIINTERFACE.start()
