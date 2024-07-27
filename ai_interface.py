@@ -39,9 +39,6 @@ class AIInterface:
         try:
             self._client = Client((self.host, self.port), authkey=self.authkey)
             self.logger.info("Connected to target address")
-            from constants import DB
-            self.set_preset(UUID("10a8827c-9187-4dc6-9c48-c883af32ebc4"), DB.get_user_model_presets("10a8827c-9187-4dc6-9c48-c883af32ebc4")[0])
-            self.send_text_data(UUID("10a8827c-9187-4dc6-9c48-c883af32ebc4"), "hi")
         except ConnectionRefusedError:
             self.logger.warning("Interface could not connect to target address")
 
@@ -50,50 +47,49 @@ class AIInterface:
         return self
 
     def close(self) -> None:
-        self._thread.join()
         self._run_loop = False
+        self._thread.join()
         if self._client is not None:
             self._client.close()
 
     def __exit__(self, *args) -> None:
         self.close()
 
-    def set_preset(self, id: str, preset: ModelPreset):
+    def set_preset(self, user_id: UUID, preset: ModelPreset):
         if self._check_client_is_none():
             return
 
         self._client.send_bytes(orjson.dumps({
             "op": 1,
-            "id": id,
+            "id": str(user_id),
             "preset": preset.to_dict(),
         }))
 
-    def remove_preset(self, id: str):
+    def remove_preset(self, user_id: UUID):
         if self._check_client_is_none():
             return
 
         self._client.send_bytes(orjson.dumps({
             "op": 2,
-            "id": id
+            "id": str(user_id)
         }))
 
-    def send_voice_data(self, id: str, data: bytes):
+    def send_voice_data(self, user_id: UUID, data: bytes):
         if self._check_client_is_none():
             return
 
-        payload = bytearray(1 + len(id) + 1 + len(data))
+        payload = bytearray(1 + 32 + len(data))
         payload[0] = 3
-        payload[1 : 1 + len(id)] = bytes(id, "ascii")
-        payload[1 + len(id)] = 0xFF
-        payload[1 + len(id) + 1:] = data
+        payload[1:1 + 32] = user_id.bytes
+        payload[1 + 32:] = data
         self._client.send_bytes(bytes(payload))
 
-    def send_text_data(self, id: str, data: str):
+    def send_text_data(self, user_id: UUID, data: str):
         if self._check_client_is_none():
             return
         self._client.send_bytes(orjson.dumps({
             "op": 4,
-            "id": id,
+            "id": str(user_id),
             "data": data
         }))
 
