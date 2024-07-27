@@ -58,37 +58,42 @@ class AIInterface:
     def __exit__(self, *args) -> None:
         self.close()
 
-    def set_preset(self, user_id: UUID, preset: ModelPreset):
+    def set_preset(self, id: str, preset: ModelPreset):
         if self._check_client_is_none():
             return
 
         self._client.send_bytes(orjson.dumps({
             "op": 1,
-            "id": user_id,
+            "id": id,
             "preset": preset.to_dict(),
         }))
 
-    def remove_preset(self, user_id: UUID):
+    def remove_preset(self, id: str):
         if self._check_client_is_none():
             return
 
         self._client.send_bytes(orjson.dumps({
             "op": 2,
-            "id": user_id
+            "id": id
         }))
 
-    def send_voice_data(self, user_id: UUID, data: bytes):
+    def send_voice_data(self, id: str, data: bytes):
         if self._check_client_is_none():
             return
 
-        self._client.send_bytes((3).to_bytes() + user_id.bytes + data)
+        payload = bytearray(1 + len(id) + 1 + len(data))
+        payload[0] = 3
+        payload[1 : 1 + len(id)] = bytes(id, "ascii")
+        payload[1 + len(id)] = 0xFF
+        payload[1 + len(id) + 1:] = data
+        self._client.send_bytes(bytes(payload))
 
-    def send_text_data(self, user_id: UUID, data: str):
+    def send_text_data(self, id: str, data: str):
         if self._check_client_is_none():
             return
         self._client.send_bytes(orjson.dumps({
             "op": 4,
-            "id": user_id,
+            "id": id,
             "data": data
         }))
 
