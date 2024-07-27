@@ -4,7 +4,7 @@ import traceback
 from typing import Any, Callable, Dict
 from uuid import UUID
 
-from flask import request
+from flask import Flask, request
 from flask_login import current_user
 from flask_socketio import join_room, SocketIO # pylint: disable=redefined-builtin
 import orjson
@@ -57,18 +57,14 @@ def handle_mic_packet(data):
     if not isinstance(data, bytes):
         return "Mic packet data should be bytes not string.", 2
 
-    try:
-        mic_packet = MicPacket.FromString(data)
-    except DecodeError:
-        return "Mic packet data is in an incorrect format.", 2
-
     # TODO: [asr] Implement some kind of stop packet to force transcribe what's in the buffer
-    get_session_data().process_data(mic_packet.data)
+    AIINTERFACE.send_voice_data(current_user.id, data)
 
 
 pipeline_complete_queue = Queue()
-def poll_pipeline_loop(sleep: Callable[[float], Any]) -> Callable:
+def poll_pipeline_loop(app: Flask) -> Callable:
     def wrapper() -> None:
+        socket: SocketIO = app.extensions["socketio"]
         while True:
             try:
                 try:
@@ -76,43 +72,46 @@ def poll_pipeline_loop(sleep: Callable[[float], Any]) -> Callable:
                     # using EngineIO.create_queue will make a queue that never releases its waiters
                     # even if an item is added to the queue, and calling a blocking call on this
                     # thread will completely stop the entire main thread.
-                    event, timestamp, data, (session_data, socket, id) \
-                        = pipeline_complete_queue.get_nowait()
+                    payload: bytes = pipeline_complete_queue.get_nowait()
                 except Empty:
-                    sleep(0.05)
+                    socket.sleep(0.05)
                     continue
 
-                # Started either asr or AI generation. Either way, we just notify the client.
-                if event == "start":
-                    socket_event = {
-                        "event": event,
-                        "id": str(id),
-                        "start_message": {
-                            "type":data[0], 
-                            "details":data[1]
-                        }
-                    }
-                    # Cant use the static emit function because this is not in a flask context
-                    socket.emit(event, orjson.dumps(socket_event), to=session_data.user_id)
+                # Decode payload
+                if payload[0] == 8:
+                    opcode = 8
+                    id_end = payload.index(0xFF)
+                    with app.app_context():
+                        session_data = get_session_data(
+                            str(UUID(payload[1:33])),
+                            str(payload[33:id_end])
+                        )
+                    data: memoryview = memoryview(payload[id_end + 1:])
+                else:
+                    event = orjson.loads(payload)
+                    opcode: int = event["op"]
+                    with app.app_context():
+                        session_data = get_session_data(event["id"][:36], event["id"][36:])
+                    timestamp: str = event["timestamp"]
+                    data: Any = event["data"]
+
+                # No need to read data in these opcodes, just passthrough to the client
+                if opcode in (5, 8, 9):
+                    logger.debug("Received %i. Sending...", opcode)
+                    socket.emit(event, data, to=session_data.user_id)
 
                 # Finished generating AI response and TTS data. This event is called per sentence of
                 # the AI response, so it may be called multiple times after `start_gen` is.
-                elif event == "finish_gen":
+                elif opcode == 7:
                     logger.debug("Received generated text. Sending...")
-                    _on_finish_gen(timestamp, data, session_data, socket, id)
+                    _on_finish_gen(timestamp, data, session_data, socket)
 
                 # Finished transcribing user's mic data
-                elif event == "finish_asr":
+                elif opcode == 6:
                     logger.debug("Received transcribed text. Sending...")
-                    _on_finish_asr(timestamp, data, session_data, socket, id)
-
-                # Pipeline is finished
-                elif event == "finish":
-                    socket_event = { "event": "finish", "id": str(id) }
-                    socket.emit(event, orjson.dumps(socket_event), to=session_data.user_id)
-
+                    _on_finish_asr(timestamp, data, session_data, socket)
                 else:
-                    raise ValueError(f"Event `{event}` is not supported by the pipeline poll loop.")
+                    raise ValueError(f"Op `{opcode}` is not supported by the pipeline poll loop.")
 
             except Exception: # pylint: disable=broad-exception-caught
                 logger.error(
@@ -125,18 +124,12 @@ def _on_finish_gen(
     timestamp: datetime,
     data: Dict[str, Any],
     session_data: SessionData,
-    socket: SocketIO,
-    id: UUID
+    socket: SocketIO
 ) -> None:
     # Convert expression dicts into expression protobuf objects
     expressions = []
     for start_time, visemes in data["expressions"]:
-        if isinstance(visemes, list):
-            visemes = [
-                { "index": viseme.index, "weight": viseme.weight }
-                for viseme in visemes
-            ]
-        else:
+        if not isinstance(visemes, list):
             visemes = [{ "index": visemes.index, "weight": visemes.weight }]
         expressions.append({ "visemes": visemes, "start_time": start_time })
 
@@ -148,21 +141,15 @@ def _on_finish_gen(
         created_at=timestamp
     )
     socket_event = {
-        "event": "finish_gen",
-        "id": str(id),
-        "tts_message": {
-            "message": {
-                "id": str(message.id),
-                "user_id": str(message.user_id),
-                "conversation_id": str(message.conversation_id),
-                "content": message.content,
-                "created_at": message.created_at
-            },
-            "expressions": expressions,
-            # TODO: Send more complex wav data than just the waveform, since the client is
-            # guessing the samplerate
-            "data": data["wav"].tobytes()
-        }
+        "message": {
+            "id": str(message.id),
+            "user_id": str(message.user_id),
+            "conversation_id": str(message.conversation_id),
+            "content": message.content,
+            "created_at": message.created_at
+        },
+        "expressions": expressions,
+        "wav_id": data["wav_id"]
     }
 
     socket.emit("finish_gen", orjson.dumps(socket_event), to=session_data.user_id)
@@ -171,12 +158,10 @@ def _on_finish_asr(
     timestamp: datetime,
     data: str,
     session_data: SessionData,
-    socket: SocketIO,
-    id: UUID
+    socket: SocketIO
 ) -> None:
     if data == "" or data.isspace():
-        socket_event = { "event": "finish_asr", "id": str(id) }
-        socket.emit("finish_asr", orjson.dumps(socket_event), to=session_data.user_id)
+        socket.emit("finish_asr", "{}", to=session_data.user_id)
         return
 
     # TODO: [User Management] Temp!!!
@@ -187,8 +172,6 @@ def _on_finish_asr(
         created_at=timestamp
     )
     socket_event = {
-        "event":" finish_asr",
-        "id": str(id),
         "message": {
             "id": str(message.id),
             "user_id": str(message.user_id),

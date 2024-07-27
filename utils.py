@@ -161,10 +161,12 @@ class SessionData:
     user_id: UUID
     sessions: Set[str] = field(default_factory=set)
 
-def get_session_data() -> SessionData | None:
+def get_session_data(user_id: str = None, sid: str = None) -> SessionData | None:
     # Session "_id" and "_user_id" are from Flask-Login and the combination of the two *should*
     # ensure key in this dict is a specific user on a specific computer
-    return get_session_data_store().get(session.get("_user_id"), {}).get(session.get("_id"))
+    user_id = user_id or session.get("_user_id")
+    sid = sid or session.get("_id")
+    return get_session_data_store().get(user_id, {}).get(sid)
 
 def get_session_data_store() -> Dict[str, Dict[str, SessionData]]:
     return current_app.extensions["user_session_ids"]
