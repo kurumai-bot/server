@@ -63,6 +63,7 @@ def handle_mic_packet(data):
 
 pipeline_complete_queue = Queue()
 def poll_pipeline_loop(app: Flask) -> Callable:
+    AIINTERFACE.callback = pipeline_complete_queue.put
     def wrapper() -> None:
         socket: SocketIO = app.extensions["socketio"]
         while True:
@@ -80,36 +81,30 @@ def poll_pipeline_loop(app: Flask) -> Callable:
                 # Decode payload
                 if payload[0] == 8:
                     opcode = 8
-                    id_end = payload.index(0xFF)
-                    with app.app_context():
-                        session_data = get_session_data(
-                            str(UUID(payload[1:33])),
-                            str(payload[33:id_end])
-                        )
-                    data: memoryview = memoryview(payload[id_end + 1:])
+                    user_id: str = payload[1:33]
+                    data: memoryview = memoryview(payload[33:])
                 else:
                     event = orjson.loads(payload)
                     opcode: int = event["op"]
-                    with app.app_context():
-                        session_data = get_session_data(event["id"][:36], event["id"][36:])
+                    user_id: str = event["id"]
                     timestamp: str = event["timestamp"]
                     data: Any = event["data"]
 
                 # No need to read data in these opcodes, just passthrough to the client
                 if opcode in (5, 8, 9):
                     logger.debug("Received %i. Sending...", opcode)
-                    socket.emit(event, data, to=session_data.user_id)
+                    socket.emit(event, data, to=user_id)
 
                 # Finished generating AI response and TTS data. This event is called per sentence of
                 # the AI response, so it may be called multiple times after `start_gen` is.
                 elif opcode == 7:
                     logger.debug("Received generated text. Sending...")
-                    _on_finish_gen(timestamp, data, session_data, socket)
+                    _on_finish_gen(timestamp, data, user_id, socket)
 
                 # Finished transcribing user's mic data
                 elif opcode == 6:
                     logger.debug("Received transcribed text. Sending...")
-                    _on_finish_asr(timestamp, data, session_data, socket)
+                    _on_finish_asr(timestamp, data, user_id, socket)
                 else:
                     raise ValueError(f"Op `{opcode}` is not supported by the pipeline poll loop.")
 
@@ -123,14 +118,14 @@ def poll_pipeline_loop(app: Flask) -> Callable:
 def _on_finish_gen(
     timestamp: datetime,
     data: Dict[str, Any],
-    session_data: SessionData,
+    user_id: SessionData,
     socket: SocketIO
 ) -> None:
     # Convert expression dicts into expression protobuf objects
     expressions = []
     for start_time, visemes in data["expressions"]:
         if not isinstance(visemes, list):
-            visemes = [{ "index": visemes.index, "weight": visemes.weight }]
+            visemes = [visemes]
         expressions.append({ "visemes": visemes, "start_time": start_time })
 
     # TODO: [User Management] Temp!!!
@@ -152,21 +147,21 @@ def _on_finish_gen(
         "wav_id": data["wav_id"]
     }
 
-    socket.emit("finish_gen", orjson.dumps(socket_event), to=session_data.user_id)
+    socket.emit(7, orjson.dumps(socket_event), to=user_id)
 
 def _on_finish_asr(
     timestamp: datetime,
     data: str,
-    session_data: SessionData,
+    user_id: str,
     socket: SocketIO
 ) -> None:
     if data == "" or data.isspace():
-        socket.emit("finish_asr", "{}", to=session_data.user_id)
+        socket.emit(6, "{}", to=user_id)
         return
 
     # TODO: [User Management] Temp!!!
     message = DB.send_message(
-        session_data.user_id,
+        UUID(user_id),
         UUID("972878d5-3e81-490a-a19a-69c22f572160"),
         data,
         created_at=timestamp
@@ -181,4 +176,4 @@ def _on_finish_asr(
         }
     }
 
-    socket.emit("finish_asr", orjson.dumps(socket_event), to=session_data.user_id)
+    socket.emit(6, orjson.dumps(socket_event), to=user_id)

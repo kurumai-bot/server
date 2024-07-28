@@ -60,7 +60,7 @@ socketio.on_event("connect", sockets.handle_connect)
 socketio.on_event("disconnect", sockets.handle_disconnect)
 socketio.on_event("mic_packet", sockets.handle_mic_packet)
 
-socketio.start_background_task(sockets.poll_pipeline_loop(socketio.sleep))
+socketio.start_background_task(sockets.poll_pipeline_loop(app))
 
 
 if __name__ == "__main__":
