@@ -254,6 +254,7 @@ class Database:
         }
         user_credential = UserCredential(credential_data)
 
+        # TODO: Create default model preset
         # Add to db
         self.cursor.execute(
             create_user_query,

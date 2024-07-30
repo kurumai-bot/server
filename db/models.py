@@ -111,6 +111,9 @@ class User(DatabaseObject["User"], UserMixin):
     def get_user_credentials(self) -> UserCredential | None:
         return self._db.get_user_credentials(self.id)
 
+    def get_user_model_presets(self, limit = 100) -> List[ModelPreset]:
+        return self._db.get_user_model_presets(self.id, limit) 
+
 
 # Does not inherit from DatabaseObject so as to make accidental sending of its data harder
 class UserCredential:
