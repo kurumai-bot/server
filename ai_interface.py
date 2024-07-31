@@ -118,6 +118,7 @@ class AIInterface:
                 except (EOFError, OSError):
                     self._client.close()
                     self._client = None
+                    continue
 
                 try:
                     callback = self.callback
