@@ -36,7 +36,10 @@ def handle_connect():
         session_data.sessions.add(request.sid)
 
     # Join a room whose id is the same as the user id to make emitting events easier
-    join_room(current_user.id)
+    join_room(str(current_user.id))
+
+    # Set preset for user in ai interface
+    AIINTERFACE.set_preset(current_user.id, current_user.get_user_model_presets(limit=1)[0])
 
     logger.info("Socket with session id `%s` connected.", request.sid)
 
@@ -48,6 +51,8 @@ def handle_disconnect():
         pop_session_data()
     else:
         session_data.sessions.remove(request.sid)
+
+    AIINTERFACE.remove_preset(current_user.id)
 
     logger.info("Socket with session id `%s` disconnected.", request.sid)
 
@@ -81,8 +86,8 @@ def poll_pipeline_loop(app: Flask) -> Callable:
                 # Decode payload
                 if payload[0] == 8:
                     opcode = 8
-                    user_id: str = payload[1:33]
-                    data: memoryview = memoryview(payload[33:])
+                    user_id: str = str(UUID(bytes=payload[1:17]))
+                    data: bytes = payload[17:]
                 else:
                     event = orjson.loads(payload)
                     opcode: int = event["op"]
@@ -93,7 +98,7 @@ def poll_pipeline_loop(app: Flask) -> Callable:
                 # No need to read data in these opcodes, just passthrough to the client
                 if opcode in (5, 8, 9):
                     logger.debug("Received %i. Sending...", opcode)
-                    socket.emit(event, data, to=user_id)
+                    socket.emit(str(opcode), data, to=user_id)
 
                 # Finished generating AI response and TTS data. This event is called per sentence of
                 # the AI response, so it may be called multiple times after `start_gen` is.
@@ -147,7 +152,7 @@ def _on_finish_gen(
         "wav_id": data["wav_id"]
     }
 
-    socket.emit(7, orjson.dumps(socket_event), to=user_id)
+    socket.emit(str(7), orjson.dumps(socket_event), to=user_id)
 
 def _on_finish_asr(
     timestamp: datetime,
@@ -156,7 +161,7 @@ def _on_finish_asr(
     socket: SocketIO
 ) -> None:
     if data == "" or data.isspace():
-        socket.emit(6, "{}", to=user_id)
+        socket.emit(str(6), "{}", to=user_id)
         return
 
     # TODO: [User Management] Temp!!!
@@ -176,4 +181,4 @@ def _on_finish_asr(
         }
     }
 
-    socket.emit(6, orjson.dumps(socket_event), to=user_id)
+    socket.emit(str(6), orjson.dumps(socket_event), to=user_id)

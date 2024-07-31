@@ -168,16 +168,7 @@ class Messages(MethodView):
 
         session_data = get_session_data()
         if session_data is not None:
-            AIINTERFACE.set_preset(uuid4(), ModelPreset({
-                "model_preset_id": "",
-                "user_id": "",
-                "model_preset_name": "",
-                "text_gen_model_name": "gpt-3.5-turbo-1106",
-                "text_gen_starting_context": "please help me",
-                "tts_model_name": "tts_models/en/vctk/vits",
-                "tts_speaker_name": "p300",
-                "created_at": datetime.now()
-            }, None))
+            AIINTERFACE.send_text_data(message.user_id, message.content)
 
             # Tell other connected clients that a message was sent
             socket_event = {
