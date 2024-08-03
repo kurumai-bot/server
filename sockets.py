@@ -95,23 +95,37 @@ def poll_pipeline_loop(app: Flask) -> Callable:
                     timestamp: str = event["timestamp"]
                     data: Any = event["data"]
 
-                # No need to read data in these opcodes, just passthrough to the client
-                if opcode in (5, 8, 9):
-                    logger.debug("Received %i. Sending...", opcode)
-                    socket.emit(str(opcode), data, to=user_id)
+                # No need to do something particularly special in these cases
+                match opcode:
+                    case 5:
+                        logger.debug("Received 5. Sending...")
+                        socket.emit(
+                            str(opcode),
+                            orjson.dumps({ "type": data[0], "details": data[1] }),
+                            to=user_id
+                        )
+                    case 9:
+                        logger.debug("Received 9. Sending...")
+                        socket.emit(str(opcode), orjson.dumps(data), to=user_id)
+                    case 8:
+                        logger.debug("Received 8. Sending...")
+                        socket.emit(str(opcode), data, to=user_id)
 
-                # Finished generating AI response and TTS data. This event is called per sentence of
-                # the AI response, so it may be called multiple times after `start_gen` is.
-                elif opcode == 7:
-                    logger.debug("Received generated text. Sending...")
-                    _on_finish_gen(timestamp, data, user_id, socket)
+                    # Finished generating AI response and TTS data. This event is called per
+                    # sentence of the AI response, so it may be called multiple times after
+                    # `start_gen` is.
+                    case 7:
+                        logger.debug("Received generated text. Sending...")
+                        _on_finish_gen(timestamp, data, user_id, socket)
 
-                # Finished transcribing user's mic data
-                elif opcode == 6:
-                    logger.debug("Received transcribed text. Sending...")
-                    _on_finish_asr(timestamp, data, user_id, socket)
-                else:
-                    raise ValueError(f"Op `{opcode}` is not supported by the pipeline poll loop.")
+                    # Finished transcribing user's mic data
+                    case 6:
+                        logger.debug("Received transcribed text. Sending...")
+                        _on_finish_asr(timestamp, data, user_id, socket)
+                    case _:
+                        raise ValueError(
+                            f"Op `{opcode}` is not supported by the pipeline poll loop."
+                        )
 
             except Exception: # pylint: disable=broad-exception-caught
                 logger.error(
@@ -141,13 +155,7 @@ def _on_finish_gen(
         created_at=timestamp
     )
     socket_event = {
-        "message": {
-            "id": str(message.id),
-            "user_id": str(message.user_id),
-            "conversation_id": str(message.conversation_id),
-            "content": message.content,
-            "created_at": message.created_at
-        },
+        "message": message.to_dict(),
         "expressions": expressions,
         "wav_id": data["wav_id"]
     }
@@ -172,13 +180,7 @@ def _on_finish_asr(
         created_at=timestamp
     )
     socket_event = {
-        "message": {
-            "id": str(message.id),
-            "user_id": str(message.user_id),
-            "conversation_id": str(message.conversation_id),
-            "content": message.content,
-            "created_at": message.created_at
-        }
+        "message": message.to_dict()
     }
 
     socket.emit(str(6), orjson.dumps(socket_event), to=user_id)
