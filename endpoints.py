@@ -171,20 +171,9 @@ class Messages(MethodView):
             AIINTERFACE.send_text_data(message.user_id, message.content)
 
             # Tell other connected clients that a message was sent
-            socket_event = {
-                "event": "send_message",
-                "id": str(uuid4()),
-                "message": {
-                    "id": str(message.id),
-                    "user_id": str(message.user_id),
-                    "conversation_id": str(message.conversation_id),
-                    "content": message.content,
-                    "created_at": message.created_at
-                }
-            }
             emit(
-                "send_message",
-                orjson.dumps(socket_event),
+                "10",
+                orjson.dumps({ "message": message.to_dict() }),
                 namespace="/",
                 to=current_user.id,
             )

@@ -58,7 +58,7 @@ add_url_rule_view(app, "/user/<uuid:user_id>", view=endpoints.User)
 
 socketio.on_event("connect", sockets.handle_connect)
 socketio.on_event("disconnect", sockets.handle_disconnect)
-socketio.on_event("mic_packet", sockets.handle_mic_packet)
+socketio.on_event("3", sockets.handle_mic_packet)
 
 socketio.start_background_task(sockets.poll_pipeline_loop(app))
 
