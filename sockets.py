@@ -157,6 +157,7 @@ def _on_finish_gen(
     socket_event = {
         "message": message.to_dict(),
         "expressions": expressions,
+        "emotion": data["emotion"],
         "wav_id": data["wav_id"]
     }
 
