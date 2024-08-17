@@ -30,6 +30,7 @@ class AIInterface:
         self._client: Connection = None
         self._thread = Thread(target=self._thread_loop)
         self._run_loop = True
+        self._cant_connect_repeat = 0
 
     def start(self) -> None:
         self._try_create_client()
@@ -39,8 +40,15 @@ class AIInterface:
         try:
             self._client = Client((self.host, self.port), authkey=self.authkey)
             self.logger.info("Connected to target address")
+            self._cant_connect_repeat = 0
         except ConnectionRefusedError:
+            if self._cant_connect_repeat == 5:
+                self.logger.warning("Same warning repeated 5 times. Stopping...")
+                self._cant_connect_repeat += 1
+            elif self._cant_connect_repeat > 5:
+                return
             self.logger.warning("Interface could not connect to target address")
+            self._cant_connect_repeat += 1
 
     def __enter__(self) -> "AIInterface":
         self.start()
