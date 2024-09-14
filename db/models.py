@@ -14,11 +14,10 @@ T = TypeVar('T')
 
 
 class DatabaseObject(Generic[T]):
-    def __init__(self, data: Dict[str, Any]) -> None:
+    def __init__(self) -> None:
         super().__init__()
 
         self.id: UUID
-        self.created_at: datetime = data["created_at"]
 
     def to_dict(self) -> Dict[str, Any]:
         dict_ = self.__dict__.copy()
@@ -33,7 +32,7 @@ class DatabaseObject(Generic[T]):
 
 class Conversation(DatabaseObject["Conversation"]):
     def __init__(self, data: Dict[str, Any], db: Database) -> Conversation:
-        super().__init__(data)
+        super().__init__()
 
         self._db = db
 
@@ -41,6 +40,7 @@ class Conversation(DatabaseObject["Conversation"]):
         self.name: str = data["conversation_name"]
         self.user_id: UUID = data["user_id"]
         self.bot_user_id: UUID = data["bot_user_id"]
+        self.created_at: datetime = data["created_at"]
 
     def get_messages(self, before: datetime, after: datetime, limit = 100) -> List[Message]:
         return self._db.get_conversation_messages(self.id, before, after, limit=limit)
@@ -61,7 +61,7 @@ class Conversation(DatabaseObject["Conversation"]):
 
 class Message(DatabaseObject["Message"]):
     def __init__(self, data: Dict[str, Any], db: Database) -> None:
-        super().__init__(data)
+        super().__init__()
 
         self._db = db
 
@@ -69,6 +69,7 @@ class Message(DatabaseObject["Message"]):
         self.user_id: UUID = data["user_id"]
         self.conversation_id: UUID = data["conversation_id"]
         self.content: str = data["content"]
+        self.created_at: datetime = data["created_at"]
 
     def get_user(self) -> User | None:
         return self._db.get_user(self.user_id)
@@ -77,33 +78,34 @@ class Message(DatabaseObject["Message"]):
         return self._db.get_conversation(self.conversation_id)
 
 
-class ModelPreset(DatabaseObject["ModelPreset"]):
+class BotUser(DatabaseObject["BotUser"]):
     def __init__(self, data: Dict[str, Any], db: Database) -> None:
-        super().__init__(data)
+        super().__init__()
 
         self._db = db
 
-        self.id = data["model_preset_id"]
-        self.name: str = data["model_preset_name"]
-        self.user_id: UUID = data["user_id"]
+        self.id = data["user_id"]
+        self.creator_id = data["creator_id"]
+        self.last_updated: str = data["last_updated"]
         self.text_gen_model_name: str = data["text_gen_model_name"]
         self.text_gen_starting_context: str = data["text_gen_starting_context"]
         self.tts_model_name: str = data["tts_model_name"]
         self.tts_speaker_name: str = data["tts_speaker_name"]
 
     def get_user(self) -> User | None:
-        return self._db.get_user(self.user_id)
+        return self._db.get_user(self.id)
 
 
 class User(DatabaseObject["User"], UserMixin):
     def __init__(self, data: Dict[str, Any], db: Database) -> None:
-        super().__init__(data)
+        super().__init__()
 
         self._db = db
 
         self.id = data["user_id"]
         self.username: str = data["username"]
         self.is_bot: bool = data["is_bot"]
+        self.created_at: datetime = data["created_at"]
 
     def get_conversations(self, limit = 100) -> List[Conversation]:
         return self._db.get_user_conversations(self.id, limit=limit)
@@ -111,8 +113,8 @@ class User(DatabaseObject["User"], UserMixin):
     def get_user_credentials(self) -> UserCredential | None:
         return self._db.get_user_credentials(self.id)
 
-    def get_user_model_presets(self, limit = 100) -> List[ModelPreset]:
-        return self._db.get_user_model_presets(self.id, limit) 
+    def get_bot_user(self) -> BotUser:
+        return self._db.get_bot_user(self.id)
 
 
 # Does not inherit from DatabaseObject so as to make accidental sending of its data harder

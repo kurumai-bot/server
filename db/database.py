@@ -1,15 +1,15 @@
 from datetime import datetime, timedelta
 import logging
 import re
-from typing import Any, Callable, Dict, List, TypeVar
+from typing import Callable, List, TypeVar
 from uuid import UUID, uuid4
 
 import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
-from utils import Cache
 
-from .models import Conversation, DatabaseObject, Message, ModelPreset, User, UserCredential
+from utils import Cache
+from .models import BotUser, Conversation, Message, User, UserCredential
 
 
 # TODO: update queries to not be broken with the db changes
@@ -41,11 +41,24 @@ get_user_credentials_query = sql.SQL(
     sql.Identifier("user_id")
 )
 
-get_user_model_presets_query = sql.SQL(
-    "SELECT * FROM {} WHERE {}=%s LIMIT %s;"
+get_bot_user_query = sql.SQL(
+    "SELECT * FROM {} WHERE {}=%s;"
 ).format(
-    sql.Identifier("model_preset"),
+    sql.Identifier("bot_user"),
     sql.Identifier("user_id")
+)
+
+create_bot_user_query = sql.SQL(
+    "INSERT INTO {} ({}, {}, {}, {}, {}, {}, {}) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+).format(
+    sql.Identifier("bot_user"),
+    sql.Identifier("user_id"),
+    sql.Identifier("creator_id"),
+    sql.Identifier("last_modified"),
+    sql.Identifier("text_gen_model_name"),
+    sql.Identifier("text_gen_starting_context"),
+    sql.Identifier("tts_model_name"),
+    sql.Identifier("tts_speaker_name"),
 )
 
 create_user_query = sql.SQL(
@@ -129,26 +142,6 @@ send_message_query = sql.SQL(
     sql.Identifier("created_at")
 )
 
-get_model_preset_query = sql.SQL(
-    "SELECT * FROM {} WHERE {}=%s"
-).format(
-    sql.Identifier("model_preset"),
-    sql.Identifier("model_preset_id")
-)
-
-create_model_preset_query = sql.SQL(
-    "INSERT INTO {} ({}, {}, {}, {}, {}, {}, {}) VALUES (%s, %s, %s, %s, %s, %s, %s)"
-).format(
-    sql.Identifier("model_preset"),
-    sql.Identifier("user_id"),
-    sql.Identifier("model_preset_name"),
-    sql.Identifier("text_gen_model_name"),
-    sql.Identifier("text_gen_starting_context"),
-    sql.Identifier("tts_model_name"),
-    sql.Identifier("tts_speaker_name"),
-    sql.Identifier("created_at")
-)
-
 
 RT = TypeVar("RT")
 GetCacheFunc = Callable[["Database", UUID], RT]
@@ -177,7 +170,6 @@ def _get_cache(ttl: timedelta = None):
 # TODO: implement logging for the entire db lib
 # TODO: Figure out how to handle deletion of users and stuff
 # TODO: Figure out how to handle duplicate keys
-# TODO: Separate bots and users into 2 separate objects
 class Database:
     def __init__(
         self,
@@ -218,7 +210,6 @@ class Database:
             return None
         return UserCredential(data)
 
-    @_get_cache()
     def get_user_conversations(self, id: UUID, limit = 100) -> List[Conversation]:
         cursor = self.cursor.execute(get_user_conversations_query, (id, limit))
         data = cursor.fetchall()
@@ -226,18 +217,11 @@ class Database:
             return []
         return [Conversation(dict_, self) for dict_ in data]
 
-    def get_user_model_presets(self, id: UUID, limit = 100) -> List[ModelPreset]:
-        cursor = self.cursor.execute(get_user_model_presets_query, (id, limit))
-        data = cursor.fetchall()
-        if data is None:
-            return []
-        return [ModelPreset(dict_, self) for dict_ in data]
-
     def create_user(
         self,
         username: str,
         is_bot: bool,
-        password: str,
+        password: str = None,
         created_at: datetime = None
     ) -> User:
         data = {
@@ -248,13 +232,6 @@ class Database:
         }
         user = User(data, self)
 
-        credential_data = {
-            "user_id": data["user_id"],
-            "password": password
-        }
-        user_credential = UserCredential(credential_data)
-
-        # TODO: Create default model preset
         # Add to db
         self.cursor.execute(
             create_user_query,
@@ -265,13 +242,21 @@ class Database:
                 user.created_at
             )
         )
-        self.cursor.execute(
-            create_user_credentials_query,
-            (
-                user_credential.id,
-                user_credential.password
+
+        if password is not None:
+            credential_data = {
+                "user_id": user.id,
+                "password": password
+            }
+            user_credential = UserCredential(credential_data)
+
+            self.cursor.execute(
+                create_user_credentials_query,
+                (
+                    user_credential.id,
+                    user_credential.password
+                )
             )
-        )
 
         # Add to cache
         # No need to add credentials to cache since it's a rarer operation
@@ -397,65 +382,58 @@ class Database:
         self.logger.debug("Message created with the following parameters: %s", data)
         return message
 
-    def get_model_preset(self, id: UUID) -> ModelPreset | None:
-        cursor = self.cursor.execute(get_model_preset_query, (id,))
+    @_get_cache()
+    def get_bot_user(self, id: UUID) -> BotUser | None:
+        cursor = self.cursor.execute(get_bot_user_query, (id,))
         data = cursor.fetchone()
         if data is None:
             return None
-        return ModelPreset(data, self)
+        return BotUser(data, self)
 
-    def create_model_preset(
+    def create_bot_user(
         self,
-        user_id: UUID,
+        username: str,
+        creator_id: UUID,
+        last_modified: datetime = None,
         text_gen_model_name: str = None,
         tts_model_name: str = None,
-        name: str = None,
         text_gen_starting_context: str = None,
         tts_speaker_name: str = None,
-        created_at: datetime = None
-    ) -> ModelPreset:
+        created_at: datetime = None,
+    ) -> BotUser:
+        user = self.create_user(username, True, created_at=created_at)
+
         data = {
-            "model_preset_id": uuid4(),
-            "user_id": user_id,
-            "model_preset_name": name,
+            "user_id": user.id,
+            "creator_id": creator_id,
+            "last_modified": last_modified or datetime.utcnow(),
             "text_gen_model_name": text_gen_model_name,
             "text_gen_starting_context": text_gen_starting_context,
             "tts_model_name": tts_model_name,
-            "tts_speaker_name": tts_speaker_name,
-            "created_at": created_at or datetime.utcnow()
+            "tts_speaker_name": tts_speaker_name
         }
-        model_preset = ModelPreset(data, self)
+        bot_user = BotUser(data, self)
 
         # Add to db
         self.cursor.execute(
-            create_model_preset_query,
+            create_bot_user_query,
             (
-                model_preset.id,
-                model_preset.user_id,
-                model_preset.name,
-                model_preset.text_gen_model_name,
-                model_preset.text_gen_starting_context,
-                model_preset.tts_model_name,
-                model_preset.tts_speaker_name,
-                model_preset.created_at
+                bot_user.id,
+                bot_user.creator_id,
+                bot_user.last_updated,
+                bot_user.text_gen_model_name,
+                bot_user.text_gen_starting_context,
+                bot_user.tts_model_name,
+                bot_user.tts_speaker_name
             )
         )
 
         # Add to cache
-        self.cache.add(f"model_preset_{model_preset.id}", model_preset)
+        self.cache.add(f"bot_user_{bot_user.id}", bot_user)
 
         self.conn.commit()
-        self.logger.debug("ModelPreset created with the following parameters: %s", data)
-        return model_preset
-
-    def from_dict(self, data: Dict[str, Any]) -> DatabaseObject:
-        if data["type"] == "Message":
-            return Message(data, self)
-        if data["type"] == "Conversation":
-            return Conversation(data, self)
-        if data["type"] == "User":
-            return User(data, self)
-        raise ValueError(f"Given data has an unknown type: `{data['type']}`.")
+        self.logger.debug("BotUser created with the following parameters: %s", data)
+        return bot_user
 
     def close(self):
         self.cursor.close()
