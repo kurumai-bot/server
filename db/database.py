@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import re
 from typing import Callable, List, TypeVar
@@ -228,7 +228,7 @@ class Database:
             "user_id": uuid4(),
             "username": username,
             "is_bot": is_bot,
-            "created_at": created_at or datetime.utcnow()
+            "created_at": created_at or datetime.now(timezone.utc)
         }
         user = User(data, self)
 
@@ -316,7 +316,7 @@ class Database:
             "user_id": user_id,
             "bot_user_id": bot_user_id,
             "conversation_name": name,
-            "created_at": created_at or datetime.utcnow()
+            "created_at": created_at or datetime.now(timezone.utc)
         }
         conversation = Conversation(data, self)
 
@@ -359,7 +359,7 @@ class Database:
             "user_id": user_id,
             "conversation_id": conversation_id,
             "content": content,
-            "created_at": created_at or datetime.utcnow()
+            "created_at": created_at or datetime.now(timezone.utc)
         }
         message = Message(data, self)
 
@@ -406,7 +406,7 @@ class Database:
         data = {
             "user_id": user.id,
             "creator_id": creator_id,
-            "last_modified": last_modified or datetime.utcnow(),
+            "last_modified": last_modified or datetime.now(timezone.utc),
             "text_gen_model_name": text_gen_model_name,
             "text_gen_starting_context": text_gen_starting_context,
             "tts_model_name": tts_model_name,
