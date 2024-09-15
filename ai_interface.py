@@ -5,11 +5,10 @@ from threading import Thread
 import time
 import traceback
 from typing import Any, Callable
-from uuid import UUID
 
 import orjson
 
-from db import ModelPreset
+from db import BotUser
 
 
 class AIInterface:
@@ -63,41 +62,48 @@ class AIInterface:
     def __exit__(self, *args) -> None:
         self.close()
 
-    def set_preset(self, user_id: UUID, preset: ModelPreset):
+    def set_preset(self, id: str, preset: BotUser):
         if self._check_client_is_none():
             return
 
+        preset_dict = preset.to_dict()
+        del preset_dict["id"]
+        del preset_dict["creator_id"]
+        del preset_dict["last_updated"]
+
         self._client.send_bytes(orjson.dumps({
             "op": 1,
-            "id": str(user_id),
-            "preset": preset.to_dict(),
+            "id": id,
+            "preset": preset_dict
         }))
 
-    def remove_preset(self, user_id: UUID):
+    def remove_preset(self, id: str):
         if self._check_client_is_none():
             return
 
         self._client.send_bytes(orjson.dumps({
             "op": 2,
-            "id": str(user_id)
+            "id": id
         }))
 
-    def send_voice_data(self, user_id: UUID, data: bytes):
+    def send_voice_data(self, id: str, data: bytes):
         if self._check_client_is_none():
             return
 
-        payload = bytearray(1 + 32 + len(data))
+        id_bytes = id.encode()
+        payload = bytearray(1 + len(id_bytes) + 1 + len(data))
         payload[0] = 3
-        payload[1:1 + 32] = user_id.bytes
-        payload[1 + 32:] = data
+        payload[1:1 + len(id_bytes)] = id_bytes
+        payload[1 + len(id_bytes)] = 0xff
+        payload[1 + len(id_bytes) + 1:] = data
         self._client.send_bytes(bytes(payload))
 
-    def send_text_data(self, user_id: UUID, data: str):
+    def send_text_data(self, id: str, data: str):
         if self._check_client_is_none():
             return
         self._client.send_bytes(orjson.dumps({
             "op": 4,
-            "id": str(user_id),
+            "id": id,
             "data": data
         }))
 
