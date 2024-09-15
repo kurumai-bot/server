@@ -17,7 +17,7 @@ app = Flask(__name__)
 app.json = ORJSONProvider(app)
 app.secret_key = SECRET_KEY
 # This won't scale horizontally, but will work fine for the time being
-app.extensions["user_session_ids"] = {}
+app.extensions["user_sessions"] = {}
 login_manager = LoginManager(app)
 cors = CORS(app, supports_credentials=True)
 
@@ -59,6 +59,7 @@ add_url_rule_view(app, "/user/<uuid:user_id>", view=endpoints.User)
 socketio.on_event("connect", sockets.handle_connect)
 socketio.on_event("disconnect", sockets.handle_disconnect)
 socketio.on_event("3", sockets.handle_mic_packet)
+socketio.on_event("11", sockets.handle_set_conversation)
 
 socketio.start_background_task(sockets.poll_pipeline_loop(app))
 

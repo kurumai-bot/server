@@ -108,8 +108,8 @@ get_conversation_bot_user_query = sql.SQL(
 ).format(
     sql.Identifier("conversation"),
     sql.Identifier("usr"),
-    sql.Identifier("user_id"),
     sql.Identifier("bot_user_id"),
+    sql.Identifier("user_id"),
     sql.Identifier("conversation_id")
 )
 
@@ -420,7 +420,7 @@ class Database:
             (
                 bot_user.id,
                 bot_user.creator_id,
-                bot_user.last_updated,
+                bot_user.last_modified,
                 bot_user.text_gen_model_name,
                 bot_user.text_gen_starting_context,
                 bot_user.tts_model_name,

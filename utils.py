@@ -159,42 +159,46 @@ def socket_login_required(func: Callable[..., RT]):
 @dataclass
 class SessionData:
     user_id: UUID
-    sessions: Set[str] = field(default_factory=set)
+    conversations: Set[UUID] = field(default_factory=set)
+    sessions: dict[str, UUID | None] = field(default_factory=dict)
 
-def get_session_data(user_id: str = None, sid: str = None) -> SessionData | None:
+def get_session_data(user_id: str = None) -> SessionData | None:
     # Session "_id" and "_user_id" are from Flask-Login and the combination of the two *should*
     # ensure key in this dict is a specific user on a specific computer
     user_id = user_id or session.get("_user_id")
-    sid = sid or session.get("_id")
-    return get_session_data_store().get(user_id, {}).get(sid)
+    return get_session_data_store().get(user_id)
 
-def get_session_data_store() -> Dict[str, Dict[str, SessionData]]:
-    return current_app.extensions["user_session_ids"]
+def get_session_data_store() -> Dict[str, SessionData]:
+    return current_app.extensions["user_sessions"]
 
-def add_session_data(session_data: SessionData) -> None:
+def add_session_data(request_sid: str, user_id: str = None) -> None:
     store = get_session_data_store()
-    user_id = session.get("_user_id")
-    session_id = session.get("_id")
+    user_id = user_id or session.get("_user_id")
 
-    user_sessions = store.get(user_id)
-    if user_sessions is not None:
-        user_sessions[session_id] = session_data
-    else:
-        user_sessions = { session_id: session_data }
-        store[user_id] = user_sessions
+    if user_id not in store:
+        store[user_id] = SessionData(user_id)
+    store[user_id].sessions[request_sid] = None
 
-def pop_session_data() -> SessionData:
+def add_conversation_to_session(
+        request_sid: str,
+        conversation_id: str,
+        user_id: str = None
+) -> None:
+    user_id = user_id or session.get("_user_id")
+    session_data = get_session_data(user_id)
+
+    session_data.conversations.add(conversation_id)
+    session_data.sessions[request_sid] = conversation_id
+
+def remove_session_data(request_sid: str, user_id: str = None) -> None:
     store = get_session_data_store()
-    user_id = session.get("_user_id")
-    session_id = session.get("_id")
+    user_id = user_id or session.get("_user_id")
 
-    user_sessions = store[user_id]
-    session_data = user_sessions[session_id]
-    if len(user_sessions) == 1:
+    session_data = store[user_id]
+    if len(session_data.sessions) == 0:
         store.pop(user_id)
     else:
-        user_sessions.pop(session_id)
-    return session_data
+        session_data.sessions.pop(request_sid)
 
 def add_url_rule_view(
     app: Flask,

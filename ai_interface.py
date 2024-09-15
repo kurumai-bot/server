@@ -69,7 +69,7 @@ class AIInterface:
         preset_dict = preset.to_dict()
         del preset_dict["id"]
         del preset_dict["creator_id"]
-        del preset_dict["last_updated"]
+        del preset_dict["last_modified"]
 
         self._client.send_bytes(orjson.dumps({
             "op": 1,

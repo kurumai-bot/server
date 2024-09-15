@@ -86,7 +86,7 @@ class BotUser(DatabaseObject["BotUser"]):
 
         self.id = data["user_id"]
         self.creator_id = data["creator_id"]
-        self.last_updated: str = data["last_updated"]
+        self.last_modified: str = data["last_modified"]
         self.text_gen_model_name: str = data["text_gen_model_name"]
         self.text_gen_starting_context: str = data["text_gen_starting_context"]
         self.tts_model_name: str = data["tts_model_name"]

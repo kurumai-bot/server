@@ -10,7 +10,6 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from constants import AIINTERFACE, DB
 import db
-from db.models import ModelPreset
 from utils import abort_if_none, list_to_dict, get_session_data
 
 
@@ -168,7 +167,10 @@ class Messages(MethodView):
 
         session_data = get_session_data()
         if session_data is not None:
-            AIINTERFACE.send_text_data(message.user_id, message.content)
+            AIINTERFACE.send_text_data(
+                str(message.user_id) + str(message.conversation_id),
+                message.content
+            )
 
             # Tell other connected clients that a message was sent
             emit(
