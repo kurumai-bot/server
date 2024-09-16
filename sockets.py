@@ -116,7 +116,7 @@ def _on_payload(payload: bytes, socket: SocketIO):
         opcode = 8
         user_id: str = payload[1:37].decode()
         conversation_id: str = payload[37:73].decode()
-        data: bytes = payload[34:]
+        data: bytes = payload[74:]
     else:
         event = orjson.loads(payload)
         opcode: int = event["op"]
@@ -134,7 +134,7 @@ def _on_payload(payload: bytes, socket: SocketIO):
                 to=user_id
             )
         case 5:
-            logger.debug("Received 5. Sending...")
+            logger.debug("Received 5. Sending to %s", user_id)
             socket.emit(
                 str(opcode),
                 orjson.dumps(
@@ -143,26 +143,26 @@ def _on_payload(payload: bytes, socket: SocketIO):
                 to=user_id
             )
         case 9:
-            logger.debug("Received 9. Sending...")
+            logger.debug("Received 9. Sending to %s", user_id)
             socket.emit(
                 str(opcode),
                 orjson.dumps({ "conversation_id": conversation_id }),
                 to=user_id
             )
         case 8:
-            logger.debug("Received 8. Sending...")
-            socket.emit(str(opcode), conversation_id.encode() + data, to=user_id)
+            logger.debug("Received 8. Sending to %s", user_id)
+            socket.emit(str(opcode), data, to=user_id)
 
         # Finished generating AI response and TTS data. This event is called per
         # sentence of the AI response, so it may be called multiple times after
         # `start_gen` is.
         case 7:
-            logger.debug("Received generated text. Sending...")
+            logger.debug("Received generated text. Sending to %s", user_id)
             _on_finish_gen(timestamp, data, user_id, conversation_id, socket)
 
         # Finished transcribing user's mic data
         case 6:
-            logger.debug("Received transcribed text. Sending...")
+            logger.debug("Received transcribed text. Sending to %s", user_id)
             _on_finish_asr(timestamp, data, user_id, conversation_id, socket)
         case _:
             raise ValueError(f"Op `{opcode}` is not supported by the pipeline poll loop.")
