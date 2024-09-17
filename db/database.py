@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
+import itertools
 import logging
 import re
-from typing import Callable, List, ParamSpec, TypeVar
+from typing import Any, Callable, List, ParamSpec, TypeVar
 from uuid import UUID, uuid4
 
 import psycopg
@@ -41,6 +42,16 @@ get_user_credentials_query = sql.SQL(
     sql.Identifier("user_id")
 )
 
+create_user_query = sql.SQL(
+    "INSERT INTO {} ({}, {}, {}, {}) VALUES (%s, %s, %s, %s)"
+).format(
+    sql.Identifier("usr"),
+    sql.Identifier("user_id"),
+    sql.Identifier("username"),
+    sql.Identifier("is_bot"),
+    sql.Identifier("created_at")
+)
+
 get_bot_user_query = sql.SQL(
     "SELECT * FROM {} WHERE {}=%s;"
 ).format(
@@ -59,16 +70,6 @@ create_bot_user_query = sql.SQL(
     sql.Identifier("text_gen_starting_context"),
     sql.Identifier("tts_model_name"),
     sql.Identifier("tts_speaker_name"),
-)
-
-create_user_query = sql.SQL(
-    "INSERT INTO {} ({}, {}, {}, {}) VALUES (%s, %s, %s, %s)"
-).format(
-    sql.Identifier("usr"),
-    sql.Identifier("user_id"),
-    sql.Identifier("username"),
-    sql.Identifier("is_bot"),
-    sql.Identifier("created_at")
 )
 
 create_user_credentials_query = sql.SQL(
@@ -145,7 +146,6 @@ send_message_query = sql.SQL(
 
 RT = TypeVar("RT")
 P = ParamSpec("P")
-GetCacheFunc = Callable[["Database", UUID], RT]
 
 
 # A decorator that adds the return object of a function to the cache of the db
@@ -306,6 +306,90 @@ class Database:
             return None
         return User(data, self)
 
+    @_get_cache()
+    def get_bot_user(self, id: UUID) -> BotUser | None:
+        cursor = self.cursor.execute(get_bot_user_query, (id,))
+        data = cursor.fetchone()
+        if data is None:
+            return None
+        return BotUser(data, self)
+
+    def create_bot_user(
+        self,
+        username: str,
+        creator_id: UUID,
+        last_modified: datetime = None,
+        text_gen_model_name: str = None,
+        text_gen_starting_context: str = None,
+        tts_model_name: str = None,
+        tts_speaker_name: str = None,
+        created_at: datetime = None,
+    ) -> BotUser:
+        user = self.create_user(username, True, created_at=created_at)
+
+        data = {
+            "user_id": user.id,
+            "creator_id": creator_id,
+            "last_modified": last_modified or datetime.now(timezone.utc),
+            "text_gen_model_name": text_gen_model_name,
+            "text_gen_starting_context": text_gen_starting_context,
+            "tts_model_name": tts_model_name,
+            "tts_speaker_name": tts_speaker_name
+        }
+        bot_user = BotUser(data, self)
+
+        # Add to db
+        self.cursor.execute(
+            create_bot_user_query,
+            (
+                bot_user.id,
+                bot_user.creator_id,
+                bot_user.last_modified,
+                bot_user.text_gen_model_name,
+                bot_user.text_gen_starting_context,
+                bot_user.tts_model_name,
+                bot_user.tts_speaker_name
+            )
+        )
+
+        # Add to cache
+        self.cache.add(f"bot_user_{bot_user.id}", bot_user)
+
+        self.conn.commit()
+        self.logger.debug("BotUser created with the following parameters: %s", data)
+        return bot_user, user
+
+    def update_bot_user(
+        self,
+        user_id: UUID,
+        username: str = None,
+        last_modified: datetime = None,
+        text_gen_model_name: str = None,
+        text_gen_starting_context: str = None,
+        tts_model_name: str = None,
+        tts_speaker_name: str = None,
+    ) -> tuple[BotUser, User]:
+        if username is not None:
+            self._update_row("usr", ("user_id", user_id), ("is_bot", True), username=username)
+
+            # update cache
+            self.cache.remove(f"user_{user_id}")
+        user = self.get_user(user_id)
+
+        self._update_row(
+            "bot_user",
+            ("user_id", user_id),
+            last_modified=last_modified or datetime.now(timezone.utc),
+            text_gen_model_name=text_gen_model_name,
+            text_gen_starting_context=text_gen_starting_context,
+            tts_model_name=tts_model_name,
+            tts_speaker_name=tts_speaker_name
+        )
+
+        self.cache.remove(f"bot_user_{user_id}")
+        self.logger.debug("Bot user updated: %s", user_id)
+        return self.get_bot_user(user_id), user
+
     def create_conversation(
         self,
         user_id: UUID,
@@ -384,60 +468,28 @@ class Database:
         self.logger.debug("Message created with the following parameters: %s", data)
         return message
 
-    @_get_cache()
-    def get_bot_user(self, id: UUID) -> BotUser | None:
-        cursor = self.cursor.execute(get_bot_user_query, (id,))
-        data = cursor.fetchone()
-        if data is None:
-            return None
-        return BotUser(data, self)
-
-    def create_bot_user(
-        self,
-        username: str,
-        creator_id: UUID,
-        last_modified: datetime = None,
-        text_gen_model_name: str = None,
-        tts_model_name: str = None,
-        text_gen_starting_context: str = None,
-        tts_speaker_name: str = None,
-        created_at: datetime = None,
-    ) -> BotUser:
-        user = self.create_user(username, True, created_at=created_at)
-
-        data = {
-            "user_id": user.id,
-            "creator_id": creator_id,
-            "last_modified": last_modified or datetime.now(timezone.utc),
-            "text_gen_model_name": text_gen_model_name,
-            "text_gen_starting_context": text_gen_starting_context,
-            "tts_model_name": tts_model_name,
-            "tts_speaker_name": tts_speaker_name
-        }
-        bot_user = BotUser(data, self)
-
-        # Add to db
-        self.cursor.execute(
-            create_bot_user_query,
-            (
-                bot_user.id,
-                bot_user.creator_id,
-                bot_user.last_modified,
-                bot_user.text_gen_model_name,
-                bot_user.text_gen_starting_context,
-                bot_user.tts_model_name,
-                bot_user.tts_speaker_name
-            )
-        )
-
-        # Add to cache
-        self.cache.add(f"bot_user_{bot_user.id}", bot_user)
-
-        self.conn.commit()
-        self.logger.debug("BotUser created with the following parameters: %s", data)
-        return bot_user
-
     def close(self):
         self.cursor.close()
         self.conn.close()
         self.cache.close()
+
+    def _update_row(
+        self,
+        table:str,
+        *where: list[tuple[str, Any]],
+        **values: dict[str, Any]
+    ) -> None:
+        values = {key: value for key, value in values.items() if value is not None}
+
+        set_clause = ",".join(itertools.repeat("{}=%s", len(values)))
+        where_clause = " AND ".join(itertools.repeat("{}=%s", len(where)))
+        query = sql.SQL(f"UPDATE {{}} SET {set_clause} WHERE {where_clause}").format(
+            sql.Identifier(table),
+            *list(sql.Identifier(key) for key in values),
+            *list(sql.Identifier(pair[0]) for pair in where)
+        )
+        self.cursor.execute(
+            query,
+            tuple(itertools.chain(values.values(), (pair[1] for pair in where)))
+        )
+        self.conn.commit()

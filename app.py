@@ -43,6 +43,7 @@ def load_user(user_id: str) -> User | None:
     return DB.get_user(UUID(user_id))
 
 
+add_url_rule_view(app, "/bot_user/<uuid:bot_user_id>", view=endpoints.BotUser)
 add_url_rule_view(app, "/conversations/<uuid:conversation_id>", view=endpoints.Conversation)
 add_url_rule_view(app, "/conversations", view=endpoints.Conversations)
 add_url_rule_view(app, "/auth", view=endpoints.Login)
