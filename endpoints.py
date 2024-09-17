@@ -25,6 +25,10 @@ class BotUser(MethodView):
         user = bot_user.get_user()
         ret = bot_user.to_dict()
         ret["username"] = user.username
+
+        if bot_user.creator_id != current_user.id:
+            del ret["creator_id"]
+
         return ret
 
     @login_required
@@ -77,7 +81,20 @@ class BotUser(MethodView):
         )
 
         ret = bot_user.to_dict()
+        ret["user_id"] = str(ret["user_id"])
+        ret["creator_id"] = str(ret["creator_id"])
         ret["username"] = user.username
+
+        session_data = get_session_data()
+        if session_data is not None:
+            emit(
+                str(13),
+                orjson.dumps({ "bot_user": ret }),
+                namespace="/",
+                to=str(bot_user.id),
+            )
+        # TODO: Handle updating the ai interface with new bot user stuff
+
         return ret
 
 
@@ -126,8 +143,6 @@ class Conversations(MethodView):
         session_data = get_session_data()
         if session_data is not None:
             socket_event = {
-                "event": "create_channel",
-                "id": str(uuid4()),
                 "conversation": {
                     "id": str(conversation.id),
                     "name": conversation.name,
@@ -137,10 +152,10 @@ class Conversations(MethodView):
                 }
             }
             emit(
-                "create_channel",
+                str(12),
                 orjson.dumps(socket_event),
                 namespace="/",
-                to=current_user.id,
+                to=str(current_user.id),
             )
 
         return conversation.to_dict()
@@ -251,7 +266,7 @@ class Messages(MethodView):
                 "10",
                 orjson.dumps({ "message": message.to_dict() }),
                 namespace="/",
-                to=current_user.id,
+                to=str(current_user.id),
             )
 
         return message.to_dict()

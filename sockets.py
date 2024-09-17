@@ -21,7 +21,7 @@ from uuid import UUID
 
 from flask import Flask, request
 from flask_login import current_user
-from flask_socketio import join_room, SocketIO
+from flask_socketio import join_room, SocketIO, leave_room
 import orjson
 
 from constants import AIINTERFACE, DB, LOGGER
@@ -79,7 +79,13 @@ def handle_set_conversation(data):
     except ValueError:
         return "Conversation UUID is malformed.", 2
 
+    old_conversation_id = get_session_data().sessions[request.sid]
+    if old_conversation_id is not None:
+        old_bot_user = DB.get_conversation_bot_user(old_conversation_id)
+        leave_room(old_bot_user.id)
+
     bot_user = DB.get_conversation_bot_user(conversation_id).get_bot_user()
+    join_room(bot_user.id)
     add_conversation_to_session(request.sid, str(conversation_id))
     AIINTERFACE.set_preset(str(current_user.id) + str(conversation_id), bot_user)
 
