@@ -151,9 +151,10 @@ GetCacheFunc = Callable[["Database", UUID], RT]
 # A decorator that adds the return object of a function to the cache of the db
 def _get_cache(ttl: timedelta = None):
     def get_cache_decorator(func: Callable[P, RT]) -> Callable[P, RT]:
+        # The cache key is just the func name minus the `get_`, `send_`, etc. prefix
+        cache_prefix = re.sub('^[^_]*_', '', func.__name__)
         def wrapper(db: "Database", id: UUID, *args, **kwargs) -> RT:
-            # The cache key is just the func name minus the `get_`, `send_`, etc. prefix
-            cache_key = f"{re.sub('^.*_', '', func.__name__)}_{str(id)}"
+            cache_key = f"{cache_prefix}_{str(id)}"
 
             # Check if requested item is alr in cache
             if cache_key in db.cache:
