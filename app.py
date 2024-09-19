@@ -56,6 +56,7 @@ add_url_rule_view(
 )
 add_url_rule_view(app, "/conversations/<uuid:conversation_id>/messages", view=endpoints.Messages)
 add_url_rule_view(app, "/user/<uuid:user_id>", view=endpoints.User)
+add_url_rule_view(app, "/user/available_models", view=endpoints.UserAvailableModels)
 
 socketio.on_event("connect", sockets.handle_connect)
 socketio.on_event("disconnect", sockets.handle_disconnect)
