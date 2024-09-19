@@ -1,5 +1,5 @@
 from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from flask import request
 from flask.views import MethodView
@@ -8,7 +8,7 @@ from flask_socketio import emit
 import orjson
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from constants import AIINTERFACE, DB
+from constants import AIINTERFACE, AVAILABLE_MODELS, DB
 import db
 from utils import abort_if_none, list_to_dict, get_session_data
 
@@ -40,6 +40,8 @@ class BotUser(MethodView):
 
         try:
             json = request.json
+            if len(json) == 0:
+                raise ValueError()
             username: str = json.pop("username", None)
             text_gen_model_name: str = json.pop("text_gen_model_name", None)
             text_gen_starting_context: str = json.pop("text_gen_starting_context", None)
@@ -61,14 +63,30 @@ class BotUser(MethodView):
 
         if username is not None and len(username) > 32:
             return "`username` cannot be longer than 32 characters.", 400
-        if text_gen_model_name is not None and len(text_gen_model_name) > 128:
-            return "`text_gen_model_name` cannot be longer than 128 characters.", 400
+        if text_gen_model_name is not None:
+            if len(text_gen_model_name) > 128:
+                return "`text_gen_model_name` cannot be longer than 128 characters.", 400
+            elif text_gen_model_name not in AVAILABLE_MODELS["text_gen"]:
+                return f"\"{text_gen_model_name}\" is not an allowed text gen model.", 400
         if text_gen_starting_context is not None and len(text_gen_starting_context) > 4096:
             return "`text_gen_starting_context` cannot be longer than 4096 characters.", 400
-        if tts_model_name is not None and len(tts_model_name) > 128:
-            return "`tts_model_name` cannot be longer than 128 characters.", 400
-        if tts_speaker_name is not None and len(tts_speaker_name) > 128:
-            return "`tts_speaker_name` cannot be longer than 128 characters.", 400
+        if tts_model_name is not None:
+            if len(tts_model_name) > 128:
+                return "`tts_model_name` cannot be longer than 128 characters.", 400
+            if tts_model_name not in AVAILABLE_MODELS["tts"]:
+                return f"\"{tts_model_name}\" is not an allowed tts model.", 400
+            if tts_speaker_name is None:
+                return "`tts_speaker_name` must be specified if `tts_model_name` is non null.", 400
+        if tts_speaker_name is not None:
+            if len(tts_speaker_name) > 128:
+                return "`tts_speaker_name` cannot be longer than 128 characters.", 400
+            curr_tts_model = tts_model_name or bot_user.tts_model_name
+            if tts_speaker_name not in AVAILABLE_MODELS["tts"][curr_tts_model]:
+                return (
+                    f"\"{tts_speaker_name}\" is not an allowed speaker on the \"{curr_tts_model}\" "
+                    + "tts model.",
+                    400
+                )
 
         bot_user, user = DB.update_bot_user(
             bot_user_id,
@@ -81,7 +99,7 @@ class BotUser(MethodView):
         )
 
         ret = bot_user.to_dict()
-        ret["user_id"] = str(ret["user_id"])
+        ret["user_id"] = str(user.id)
         ret["creator_id"] = str(ret["creator_id"])
         ret["username"] = user.username
 
@@ -307,3 +325,9 @@ class User(MethodView):
     @login_required
     def put(self, user_id):
         return user_id
+
+
+class UserAvailableModels(MethodView):
+    @login_required
+    def get(self):
+        return AVAILABLE_MODELS

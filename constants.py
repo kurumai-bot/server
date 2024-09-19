@@ -55,3 +55,11 @@ AIINTERFACE = AIInterface(
     logger=LOGGER.getChild("interface")
 )
 AIINTERFACE.start()
+
+
+AVAILABLE_MODELS = {
+    "text_gen": ["transformers/meta-llama/Meta-Llama-3.1-8B-Instruct"],
+    "tts": {
+        "tts_models/en/vctk/vits": ["p300"]
+    }
+}
