@@ -25,6 +25,7 @@ class BotUser(MethodView):
         user = bot_user.get_user()
         ret = bot_user.to_dict()
         ret["username"] = user.username
+        ret["created_at"] = user.created_at
 
         if bot_user.creator_id != current_user.id:
             del ret["creator_id"]
@@ -99,9 +100,8 @@ class BotUser(MethodView):
         )
 
         ret = bot_user.to_dict()
-        ret["user_id"] = str(user.id)
-        ret["creator_id"] = str(ret["creator_id"])
         ret["username"] = user.username
+        ret["created_at"] = user.created_at
 
         session_data = get_session_data()
         if session_data is not None:
